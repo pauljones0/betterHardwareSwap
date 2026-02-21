@@ -1,0 +1,12 @@
+# Binaries
+/server
+
+# Environment 
+.env
+
+# MacOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
