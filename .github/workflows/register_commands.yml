@@ -1,0 +1,22 @@
+name: Register Slash Commands
+
+on:
+  workflow_dispatch:
+
+jobs:
+  register-commands:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24' # Adjust if needed, defaulting to recent Go
+
+      - name: Run Registration Script
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
+        run: go run cmd/register/main.go
