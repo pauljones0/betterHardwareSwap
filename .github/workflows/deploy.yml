@@ -29,6 +29,13 @@ jobs:
       - name: Authorize Docker push
         run: gcloud auth configure-docker ${REGION}-docker.pkg.dev
 
+      - name: Create Artifact Registry Repository
+        run: |
+          gcloud artifacts repositories create cloud-run-source-deploy \
+            --repository-format=docker \
+            --location=${REGION} \
+            --description="Docker repository for Cloud Run" || true
+
       - name: Build and Push Container
         run: |-
           DOCKER_TAG="${REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${SERVICE_NAME}:${GITHUB_SHA}"
