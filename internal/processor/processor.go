@@ -47,7 +47,13 @@ func RunPipeline(ctx context.Context) error {
 	}
 	defer aiSvc.Close()
 
-	scraper := reddit.NewScraper()
+	redditClientID := os.Getenv("REDDIT_CLIENT_ID")
+	redditClientSecret := os.Getenv("REDDIT_CLIENT_SECRET")
+	if redditClientID == "" || redditClientSecret == "" {
+		return fmt.Errorf("REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET must be set")
+	}
+
+	scraper := reddit.NewScraper(redditClientID, redditClientSecret)
 	discordClient := discord.NewClient(os.Getenv("DISCORD_BOT_TOKEN"))
 
 	posts, err := scraper.FetchNewestPosts()

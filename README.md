@@ -16,8 +16,9 @@ Powered by Go, deployed on GCP Cloud Run, scaling to infinite concurrency when c
 ### 1. Prerequisites
 1. Create a [Discord Application](https://discord.com/developers/applications) and grab your **Bot Token**, **Public Key**, and **Application ID**.
 2. Get a [Google Gemini API Key](https://aistudio.google.com/app/apikey).
-3. Create a [Google Cloud Project](https://console.cloud.google.com/). Enable **Cloud Run**, **Firestore (Native Mode)**, and **Cloud Scheduler** APIs.
-4. Create a GCP Service Account with `Editor` and `Cloud Run Admin` roles. Generate a JSON Key.
+3. Apply for Reddit Data API access by creating a Script App at [Reddit App Prefs](https://www.reddit.com/prefs/apps). Note your **Client ID** and **Client Secret**.
+4. Create a [Google Cloud Project](https://console.cloud.google.com/). Enable **Cloud Run**, **Firestore (Native Mode)**, and **Cloud Scheduler** APIs.
+5. Create a GCP Service Account with `Editor` and `Cloud Run Admin` roles. Generate a JSON Key.
 
 ### 2. GitHub Secrets
 Go to your GitHub Repository -> Settings -> Secrets and Variables -> Actions. Add the following repository secrets:
@@ -27,6 +28,8 @@ Go to your GitHub Repository -> Settings -> Secrets and Variables -> Actions. Ad
 * `DISCORD_PUBLIC_KEY`: From Discord Dev Portal
 * `DISCORD_BOT_TOKEN`: From Discord Dev Portal
 * `GEMINI_API_KEY`: From Google AI Studio
+* `REDDIT_CLIENT_ID`: From Reddit App Prefs
+* `REDDIT_CLIENT_SECRET`: From Reddit App Prefs
 
 ### 3. Deploy
 1. Push this code to the `main` branch. GitHub Actions will automatically build the Docker container and deploy it to a new Cloud Run service named `canadian-hardware-swap-bot`.
@@ -51,6 +54,8 @@ To test the Discord interactions locally without deploying to GCP:
    DISCORD_BOT_TOKEN=xxx
    GEMINI_API_KEY=xxx
    GCP_PROJECT_ID=xxx
+   REDDIT_CLIENT_ID=xxx
+   REDDIT_CLIENT_SECRET=xxx
    ```
 3. Run `ngrok http 8080`
 4. Put the Ngrok HTTPS URL + `/interactions` into the Discord Dev Portal.
