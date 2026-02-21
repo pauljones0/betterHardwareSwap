@@ -54,7 +54,7 @@ func (s *Scraper) FetchNewestPosts() ([]Post, error) {
 	}
 
 	// Reddit explicitly requires a custom User-Agent to avoid IP bans.
-	req.Header.Set("User-Agent", "HardwareSwapBot/1.0.0 (by /u/pauljones0)")
+	req.Header.Set("User-Agent", "script:canadianhardwareswapbot:v1.0.1 (by u/pauljones0)")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
