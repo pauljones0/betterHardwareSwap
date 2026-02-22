@@ -42,6 +42,16 @@ func NewAIClient(ctx context.Context, apiKey string) (*AIClient, error) {
 	model := client.GenerativeModel("gemini-2.5-flash-lite")
 	model.ResponseMIMEType = "application/json" // Force structured JSON output
 
+	// We'll define a generic ResponseSchema loosely, or just rely on MIME Type + prompt,
+	// but adding a schema provides strict guarantees if we wanted to enforce it at the model level.
+	// We'll add the schema for CleanedPost and KeywordWizardResponse here by dynamically overriding
+	// the schema per generation call instead, but for now we'll set the schema to object.
+
+	schema := &genai.Schema{
+		Type: genai.TypeObject,
+	}
+	model.ResponseSchema = schema
+
 	return &AIClient{
 		client: client,
 		model:  model,
@@ -95,23 +105,39 @@ Respond ONLY with a valid JSON object matching this schema:
 // RunKeywordWizard converts a user's natural language request into a strict Boolean alert query.
 func (c *AIClient) RunKeywordWizard(ctx context.Context, userRequest string) (*KeywordWizardResponse, error) {
 	prompt := fmt.Sprintf(`
-You are an expert search-query builder for a PC Hardware tracking bot.
-A user wants to be pinged when an item matching their description is posted.
+You are an expert search-query builder for a PC Hardware tracking Discord bot.
+The bot ONLY monitors r/CanadianHardwareSwap, a subreddit EXCLUSIVELY for buying and selling computer hardware.
 
-Your goal is to convert their natural language request into a strict Boolean query.
-- must_have (AND): Words that ABSOLUTELY MUST be in the post. (e.g. if they want a 3080 in Toronto, "toronto" is a must_have). Make these lowercase.
-- any_of (OR): An array of synonyms or variations. If any ONE of these match, the rule passes. (e.g., ["rtx 3080", "3080ti", "rtx3080"]). Make these lowercase.
+Your goal is to convert the user's natural language request into a strict Boolean query.
+
+CRITICAL RULES:
+1. ALL posts are already about computer hardware. NEVER use generic terms like "computer parts", "pc parts", "hardware", "gaming", "electronics", "buy", or "sell" as keywords. They will ruin the search because Reddit users only list specific part names.
+2. Extract specific item models, brands, or geographic locations.
+3. If a user asks for "anything in [Location]", extract the location and its common abbreviations (e.g., "sk" for Saskatchewan, "bc" for British Columbia). Put these location variations in 'any_of' if they just want anything from there, or 'must_have' if combined with an item.
+
+Fields:
+- must_have (AND): Words that ABSOLUTELY MUST be in the post. Make these lowercase.
+- any_of (OR): An array of synonyms, variations, or location aliases. If any ONE of these match, the rule passes. Make these lowercase.
 - must_not (NOT): Words to explicitly ignore (e.g., "broken", "waterblocked"). Make these lowercase.
+- too_broad: Set to true ONLY if the query is extremely generic (e.g., just "gpu", "mouse", "asus"). Location-only queries for specific cities/provinces are generally NOT too broad.
 
-CRITICAL: Evaluate "too_broad". If their query is so generic (e.g., "gpu", "mouse", "keyboard", "asus") that it would spam them on >10%% of all posts, set too_broad to true.
+Examples:
+1. User: "rtx 3080 in toronto"
+{"must_have": ["toronto"], "any_of": ["rtx 3080", "3080", "rtx3080"], "must_not": [], "too_broad": false}
+
+2. User: "any computer parts in Saskatoon Saskatchewan"
+{"must_have": [], "any_of": ["saskatoon", "saskatchewan", "sk"], "must_not": [], "too_broad": false}
+
+3. User: "I want a gpu"
+{"must_have": [], "any_of": ["gpu", "graphics card"], "must_not": [], "too_broad": true}
 
 User Request: "%s"
 
 Respond ONLY with a valid JSON object matching this schema:
 {
-  "must_have": ["toronto"],
-  "any_of": ["rtx 3080", "3080", "3080ti"],
-  "must_not": ["broken", "for parts"],
+  "must_have": ["string1"],
+  "any_of": ["string2", "string3"],
+  "must_not": [],
   "too_broad": false
 }
 `, userRequest)
