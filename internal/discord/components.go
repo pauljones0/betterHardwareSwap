@@ -217,6 +217,7 @@ func handleAlertList(ctx context.Context, w http.ResponseWriter, i *discordgo.In
 
 	alerts, err := db.GetUserAlerts(ctx, i.GuildID, userID)
 	if err != nil {
+		log.Printf("Error fetching user alerts for user %s: %v", userID, err)
 		respondError(w, "Failed to load alerts.")
 		return
 	}

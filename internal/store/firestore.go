@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -92,7 +93,6 @@ func (s *Store) GetUserAlerts(ctx context.Context, serverID, userID string) ([]A
 	iter := s.client.Collection("alerts").
 		Where("server_id", "==", serverID).
 		Where("user_id", "==", userID).
-		OrderBy("created_at", firestore.Desc).
 		Documents(ctx)
 
 	for {
@@ -110,6 +110,12 @@ func (s *Store) GetUserAlerts(ctx context.Context, serverID, userID string) ([]A
 		alert.ID = doc.Ref.ID
 		alerts = append(alerts, alert)
 	}
+
+	// Sort alerts descending by creation time in memory to avoid needing a Firestore composite index
+	sort.Slice(alerts, func(i, j int) bool {
+		return alerts[i].CreatedAt.After(alerts[j].CreatedAt)
+	})
+
 	return alerts, nil
 }
 
