@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 )
 
@@ -44,67 +42,22 @@ type TokenResponse struct {
 
 // Scraper handles talking to Reddit.
 type Scraper struct {
-	httpClient   *http.Client
-	clientID     string
-	clientSecret string
-	token        TokenResponse
-	tokenExpiry  time.Time
+	httpClient *http.Client
 }
 
 // NewScraper returns an initialized Scraper.
-func NewScraper(clientID, clientSecret string) *Scraper {
+func NewScraper() *Scraper {
 	return &Scraper{
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		clientID:     clientID,
-		clientSecret: clientSecret,
 	}
 }
 
-func (s *Scraper) getToken() error {
-	// If token isn't expired, just use it
-	if s.token.AccessToken != "" && time.Now().Before(s.tokenExpiry) {
-		return nil
-	}
-
-	data := url.Values{}
-	data.Set("grant_type", "client_credentials")
-
-	req, err := http.NewRequest("POST", "https://www.reddit.com/api/v1/access_token", strings.NewReader(data.Encode()))
-	if err != nil {
-		return err
-	}
-
-	req.SetBasicAuth(s.clientID, s.clientSecret)
-	req.Header.Set("User-Agent", "script:canadianhardwareswapbot:v1.0.1 (by u/pauljones0)")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("auth error: status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResponse TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
-		return fmt.Errorf("failed to decode token response: %w", err)
-	}
-
-	s.token = tokenResponse
-	s.tokenExpiry = time.Now().Add(time.Duration(tokenResponse.ExpiresIn-60) * time.Second) // refresh 60s early
-	return nil
-}
-
-// FetchNewestPosts hits the /new.json endpoint of r/CanadianHardwareSwap using OAuth.
-func (s *Scraper) FetchNewestPosts() ([]Post, error) {
-	if err := s.getToken(); err != nil {
-		return nil, fmt.Errorf("failed to get reddit oauth token: %w", err)
+// FetchNewestPosts hits the /new.json endpoint of r/CanadianHardwareSwap using an explicit User-Delegated token.
+func (s *Scraper) FetchNewestPosts(accessToken string) ([]Post, error) {
+	if accessToken == "" {
+		return nil, fmt.Errorf("access token is empty")
 	}
 
 	req, err := http.NewRequest("GET", "https://oauth.reddit.com/r/CanadianHardwareSwap/new.json?limit=100", nil)
@@ -113,14 +66,18 @@ func (s *Scraper) FetchNewestPosts() ([]Post, error) {
 	}
 
 	// Reddit explicitly requires a custom User-Agent to avoid IP bans.
-	req.Header.Set("User-Agent", "script:canadianhardwareswapbot:v1.0.1 (by u/pauljones0)")
-	req.Header.Set("Authorization", "Bearer "+s.token.AccessToken)
+	req.Header.Set("User-Agent", "script:canadianhardwareswapbot:v2.0 (by u/pauljones0)")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("token invalid: reddit returned %d", resp.StatusCode)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

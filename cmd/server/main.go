@@ -22,6 +22,10 @@ func main() {
 	// Setup Cloud Scheduler endpoint for scraping
 	http.HandleFunc("/cron/scrape", processor.HandleCronScrape)
 
+	// Setup OAuth 2.0 endpoints for Reddit User-Delegation
+	http.HandleFunc("/auth/reddit/login", processor.HandleRedditLogin)
+	http.HandleFunc("/auth/reddit/callback", processor.HandleRedditCallback)
+
 	log.Printf("Listening on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Fatal: %v", err)
