@@ -128,3 +128,92 @@ func (c *Client) SendFollowupEmbedWithComponents(i *discordgo.Interaction, embed
 	_, err := c.doRequest("POST", endpoint, payload)
 	return err
 }
+
+// CreateDM opens a DM channel with a specific user.
+func (c *Client) CreateDM(userID string) (string, error) {
+	payload := map[string]string{"recipient_id": userID}
+	resp, err := c.doRequest("POST", "/users/@me/channels", payload)
+	if err != nil {
+		return "", err
+	}
+	var ch discordgo.Channel
+	if err := json.Unmarshal(resp, &ch); err != nil {
+		return "", err
+	}
+	return ch.ID, nil
+}
+
+// SendAdminApprovalDM attempts to DM the admin with the newly compacted prompt.
+// If Discord blocks it due to privacy, it returns an error so we can fallback.
+func (c *Client) SendAdminApprovalDM(adminID, newPrompt, flowType string) error {
+	dmChannelID, err := c.CreateDM(adminID)
+	if err != nil {
+		return err
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       fmt.Sprintf("🧠 AI Self-Improvement Suggestion (%s)", flowType),
+		Description: "I analyzed 20 recent interactions and generated an improved system prompt.\n\n**New Prompt:**\n```text\n" + newPrompt + "\n```",
+		Color:       0xFFD700, // Gold
+	}
+
+	components := []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.Button{
+					Label:    "✅ Approve New Prompt",
+					Style:    discordgo.SuccessButton,
+					CustomID: "approve_prompt|" + flowType,
+				},
+				discordgo.Button{
+					Label:    "❌ Reject & Clear",
+					Style:    discordgo.DangerButton,
+					CustomID: "reject_prompt|" + flowType,
+				},
+			},
+		},
+	}
+
+	payload := map[string]interface{}{
+		"embeds":     []*discordgo.MessageEmbed{embed},
+		"components": components,
+	}
+
+	_, err = c.doRequest("POST", "/channels/"+dmChannelID+"/messages", payload)
+	return err
+}
+
+// SendFallbackAdminApproval sends the approval to a fallback channel pinging the admin.
+func (c *Client) SendFallbackAdminApproval(channelID, adminID, newPrompt, flowType string) error {
+	embed := &discordgo.MessageEmbed{
+		Title:       fmt.Sprintf("🧠 AI Self-Improvement Suggestion (%s)", flowType),
+		Description: fmt.Sprintf("<@%s> I couldn't DM you! I analyzed 20 recent interactions and generated an improved system prompt.\n\n**New Prompt:**\n```text\n%s\n```", adminID, newPrompt),
+		Color:       0xFFD700, // Gold
+	}
+
+	components := []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.Button{
+					Label:    "✅ Approve New Prompt",
+					Style:    discordgo.SuccessButton,
+					CustomID: "approve_prompt|" + flowType,
+				},
+				discordgo.Button{
+					Label:    "❌ Reject & Clear",
+					Style:    discordgo.DangerButton,
+					CustomID: "reject_prompt|" + flowType,
+				},
+			},
+		},
+	}
+
+	payload := map[string]interface{}{
+		"content":    fmt.Sprintf("<@%s>", adminID), // To trigger an actual ping notification
+		"embeds":     []*discordgo.MessageEmbed{embed},
+		"components": components,
+	}
+
+	_, err := c.doRequest("POST", "/channels/"+channelID+"/messages", payload)
+	return err
+}

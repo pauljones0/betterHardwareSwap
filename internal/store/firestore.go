@@ -42,6 +42,24 @@ type PostRecord struct {
 	PostedAt     time.Time `firestore:"posted_at"`
 }
 
+// AnalyticsRecord stores information about how an alert was created to evaluate AI effectiveness.
+type AnalyticsRecord struct {
+	ID                 string    `firestore:"-"`
+	FlowType           string    `firestore:"flow_type"` // "wizard" or "manual"
+	OriginalUserPrompt string    `firestore:"original_user_prompt,omitempty"`
+	AISuggestedQuery   string    `firestore:"ai_suggested_query,omitempty"`
+	FinalSavedQuery    string    `firestore:"final_saved_query,omitempty"`
+	Outcome            string    `firestore:"outcome"` // e.g., Accepted_As_Is, Edited, Cancelled, Manual_Entry_Success
+	EditCount          int       `firestore:"edit_count"`
+	CreatedAt          time.Time `firestore:"created_at"`
+}
+
+// SystemPrompt stores the dynamically updated system instructions for the AI model.
+type SystemPrompt struct {
+	PromptText string    `firestore:"prompt_text"`
+	UpdatedAt  time.Time `firestore:"updated_at"`
+}
+
 // NewStore initializes a new Firestore client using application default credentials.
 func NewStore(ctx context.Context, projectID string) (*Store, error) {
 	client, err := firestore.NewClient(ctx, projectID)
@@ -247,4 +265,81 @@ func (s *Store) TrimOldPosts(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// --- Analytics ---
+
+// SaveAnalytics saves an interaction record for AI query generation analytics.
+func (s *Store) SaveAnalytics(ctx context.Context, record AnalyticsRecord) error {
+	record.CreatedAt = time.Now()
+	_, _, err := s.client.Collection("ai_query_analytics").Add(ctx, record)
+	return err
+}
+
+// GetUnprocessedAnalyticsByFlow grabs up to `limit` records from the analytics collection for a specific AI module.
+func (s *Store) GetUnprocessedAnalyticsByFlow(ctx context.Context, flowType string, limit int) ([]AnalyticsRecord, error) {
+	var records []AnalyticsRecord
+	iter := s.client.Collection("ai_query_analytics").
+		Where("flow_type", "==", flowType).
+		OrderBy("created_at", firestore.Asc).
+		Limit(limit).
+		Documents(ctx)
+
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		var rec AnalyticsRecord
+		if err := doc.DataTo(&rec); err != nil {
+			continue // skip malformed
+		}
+		rec.ID = doc.Ref.ID
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
+// DeleteAnalyticsChunk deletes a specific set of analytics records by their document IDs.
+func (s *Store) DeleteAnalyticsChunk(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	batch := s.client.Batch()
+	for _, id := range ids {
+		ref := s.client.Collection("ai_query_analytics").Doc(id)
+		batch.Delete(ref)
+	}
+	_, err := batch.Commit(ctx)
+	return err
+}
+
+// --- Dynamic AI Prompts ---
+
+// GetSystemPrompt retrieves the stored System Prompt (e.g. for "wizard" or "manual").
+func (s *Store) GetSystemPrompt(ctx context.Context, key string) (string, error) {
+	doc, err := s.client.Collection("system_prompts").Doc(key).Get(ctx)
+	if err != nil {
+		return "", err
+	}
+	var sp SystemPrompt
+	if err := doc.DataTo(&sp); err != nil {
+		return "", err
+	}
+	return sp.PromptText, nil
+}
+
+// SetSystemPrompt saves a new System Prompt definition.
+func (s *Store) SetSystemPrompt(ctx context.Context, key, promptText string) error {
+	sp := SystemPrompt{
+		PromptText: promptText,
+		UpdatedAt:  time.Now(),
+	}
+	_, err := s.client.Collection("system_prompts").Doc(key).Set(ctx, sp)
+	return err
 }

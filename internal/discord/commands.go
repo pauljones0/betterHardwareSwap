@@ -129,27 +129,37 @@ func handleAlertGroup(ctx context.Context, w http.ResponseWriter, i *discordgo.I
 	}
 }
 
-// handleAlertAddStart opens the Modal asking the user what they want
+// handleAlertAddStart gives the user the choice between AI assistance and manual entry.
 func handleAlertAddStart(ctx context.Context, w http.ResponseWriter, i *discordgo.Interaction) {
-	writeJSON(w, discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseModal,
-		Data: &discordgo.InteractionResponseData{
-			CustomID: "modal_alert_wizard",
-			Title:    "Setup a Hardware Alert",
+	embed := &discordgo.MessageEmbed{
+		Title:       "🛠️ Create a New Alert",
+		Description: "How would you like to set up your alert?\n\n✨ **Help Me Write It**: Just tell me what you're looking for in plain English, and I'll generate the perfect match query.\n\n⌨️ **I'll Type It Myself**: If you know exactly what keywords you want (e.g., `rtx AND 4090`), you can type the query manually.",
+		Color:       0x00B0F4,
+	}
+
+	components := []discordgo.MessageComponent{
+		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
-				discordgo.ActionsRow{
-					Components: []discordgo.MessageComponent{
-						discordgo.TextInput{
-							CustomID:    "text_query",
-							Label:       "What are you looking for?",
-							Style:       discordgo.TextInputParagraph,
-							Placeholder: "e.g. A used 3080 series GPU in Toronto under $500",
-							Required:    true,
-							MaxLength:   300,
-						},
-					},
+				discordgo.Button{
+					Label:    "✨ Help Me Write It",
+					Style:    discordgo.PrimaryButton,
+					CustomID: "wizard_ai",
+				},
+				discordgo.Button{
+					Label:    "⌨️ I'll Type It Myself",
+					Style:    discordgo.SecondaryButton,
+					CustomID: "wizard_manual",
 				},
 			},
+		},
+	}
+
+	writeJSON(w, discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Components: components,
+			Flags:      discordgo.MessageFlagsEphemeral,
 		},
 	})
 }

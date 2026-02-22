@@ -26,10 +26,12 @@ type CleanedPost struct {
 
 // KeywordWizardResponse is the structured response for compiling a Boolean query.
 type KeywordWizardResponse struct {
-	MustHave []string `json:"must_have"` // AND
-	AnyOf    []string `json:"any_of"`    // OR
-	MustNot  []string `json:"must_not"`  // NOT
-	TooBroad bool     `json:"too_broad"` // Warns if this matches > 10% of deals (e.g., just "GPU")
+	MustHave     []string `json:"must_have"`               // AND
+	AnyOf        []string `json:"any_of"`                  // OR
+	MustNot      []string `json:"must_not"`                // NOT
+	TooBroad     bool     `json:"too_broad"`               // Warns if this matches > 10% of deals (e.g., just "GPU")
+	IsValid      bool     `json:"is_valid"`                // Indicates if a manually typed query is valid syntax
+	ErrorMessage string   `json:"error_message,omitempty"` // Explanation of why the syntax is invalid
 }
 
 // NewAIClient initializes the Gemini client.
@@ -102,10 +104,7 @@ Respond ONLY with a valid JSON object matching this schema:
 	return &cleaned, nil
 }
 
-// RunKeywordWizard converts a user's natural language request into a strict Boolean alert query.
-func (c *AIClient) RunKeywordWizard(ctx context.Context, userRequest string) (*KeywordWizardResponse, error) {
-	prompt := fmt.Sprintf(`
-You are an expert search-query builder for a PC Hardware tracking Discord bot.
+const DefaultWizardPrompt = `You are an expert search-query builder for a PC Hardware tracking Discord bot.
 The bot ONLY monitors r/CanadianHardwareSwap, a subreddit EXCLUSIVELY for buying and selling computer hardware.
 
 Your goal is to convert the user's natural language request into a strict Boolean query.
@@ -129,7 +128,30 @@ Examples:
 {"must_have": [], "any_of": ["saskatoon", "saskatchewan", "sk"], "must_not": [], "too_broad": false}
 
 3. User: "I want a gpu"
-{"must_have": [], "any_of": ["gpu", "graphics card"], "must_not": [], "too_broad": true}
+{"must_have": [], "any_of": ["gpu", "graphics card"], "must_not": [], "too_broad": true}`
+
+const DefaultManualPrompt = `You are a strict query syntax validator for a PC hardware tracking bot. 
+The user is attempting to type a manual Boolean query (like "rtx AND 4090" or "(ryzen 7) NOT (broken)").
+Your job is to parse this into our structured format OR reject it if the syntax is broken or non-sensical.
+
+RULES:
+1. If the query syntax is fundamentally broken (e.g. unclosed parentheses, trailing 'AND' with no word, 'AND OR' together), you MUST set "is_valid": false and provide a human-readable "error_message" explaining the syntax error clearly to a non-programmer.
+2. If the query is logically valid, translate it into the "must_have", "any_of", and "must_not" arrays. 
+3. Lowercase all keywords.
+
+Examples of Invalid Syntax:
+- "rtx AND" -> Error: "Missing a keyword after 'AND'"
+- "rtx (" -> Error: "Unclosed parenthesis"
+- "rtx AND OR" -> Error: "Cannot place 'AND' and 'OR' next to each other"`
+
+// RunKeywordWizard converts a user's natural language request into a strict Boolean alert query.
+func (c *AIClient) RunKeywordWizard(ctx context.Context, userRequest, promptOverride string) (*KeywordWizardResponse, error) {
+	basePrompt := promptOverride
+	if basePrompt == "" {
+		basePrompt = DefaultWizardPrompt
+	}
+
+	prompt := fmt.Sprintf(`%s
 
 User Request: "%s"
 
@@ -138,9 +160,45 @@ Respond ONLY with a valid JSON object matching this schema:
   "must_have": ["string1"],
   "any_of": ["string2", "string3"],
   "must_not": [],
+  "too_broad": false,
+  "is_valid": true
+}
+`, basePrompt, userRequest)
+
+	resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
+	if err != nil {
+		return nil, fmt.Errorf("gemini generation failed: %w", err)
+	}
+
+	var wizard KeywordWizardResponse
+	if err := parseJSONResponse(resp, &wizard); err != nil {
+		return nil, err
+	}
+	return &wizard, nil
+}
+
+// ValidateManualQuery securely validates a user's manually typed Boolean-like query, translating it into the strict
+// KeywordWizardResponse arrays if valid, or returning an error message if invalid.
+func (c *AIClient) ValidateManualQuery(ctx context.Context, userQuery, promptOverride string) (*KeywordWizardResponse, error) {
+	basePrompt := promptOverride
+	if basePrompt == "" {
+		basePrompt = DefaultManualPrompt
+	}
+
+	prompt := fmt.Sprintf(`%s
+
+User Query: "%s"
+
+Respond ONLY with a valid JSON object matching this schema:
+{
+  "is_valid": true,
+  "error_message": "",
+  "must_have": ["string1"],
+  "any_of": [],
+  "must_not": [],
   "too_broad": false
 }
-`, userRequest)
+`, basePrompt, userQuery)
 
 	resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
