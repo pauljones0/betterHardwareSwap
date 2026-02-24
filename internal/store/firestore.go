@@ -37,9 +37,10 @@ type AlertRule struct {
 
 // PostRecord maps a Reddit post ID to a Discord message ID to allow updating/striking-through.
 type PostRecord struct {
-	RedditID     string    `firestore:"reddit_id"`
-	DiscordMsgID string    `firestore:"discord_msg_id"`
-	PostedAt     time.Time `firestore:"posted_at"`
+	RedditID     string            `firestore:"reddit_id"`
+	CleanedTitle string            `firestore:"cleaned_title"`
+	ServerMsgs   map[string]string `firestore:"server_msgs"` // ServerID -> MessageID mapping
+	PostedAt     time.Time         `firestore:"posted_at"`
 }
 
 // AnalyticsRecord stores information about how an alert was created to evaluate AI effectiveness.
@@ -188,16 +189,36 @@ func (s *Store) GetAllAlerts(ctx context.Context) ([]AlertRule, error) {
 
 // --- Posts ---
 
-// SavePostRecord stores the mapping between a Reddit Post ID and the Discord Message ID it generated.
-func (s *Store) SavePostRecord(ctx context.Context, redditID, discordMsgID string) error {
-	return s.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		ref := s.client.Collection("posts").Doc(redditID)
-		return tx.Set(ref, PostRecord{
-			RedditID:     redditID,
-			DiscordMsgID: discordMsgID,
-			PostedAt:     time.Now(),
-		})
-	})
+// SavePostRecord stores the mapping between a Reddit Post ID and the Discord Message ID it generated for a specific server.
+func (s *Store) SavePostRecord(ctx context.Context, redditID, cleanedTitle, serverID, discordMsgID string) error {
+	doc := s.client.Collection("posts").Doc(redditID)
+
+	data := map[string]interface{}{
+		"reddit_id":     redditID,
+		"cleaned_title": cleanedTitle,
+		"posted_at":     time.Now(),
+		"server_msgs": map[string]string{
+			serverID: discordMsgID,
+		},
+	}
+
+	_, err := doc.Set(ctx, data, firestore.MergeAll)
+	return err
+}
+
+// SavePostRecords stores mappings for multiple servers in a single post record.
+func (s *Store) SavePostRecords(ctx context.Context, redditID, cleanedTitle string, serverMsgs map[string]string) error {
+	doc := s.client.Collection("posts").Doc(redditID)
+
+	data := map[string]interface{}{
+		"reddit_id":     redditID,
+		"cleaned_title": cleanedTitle,
+		"posted_at":     time.Now(),
+		"server_msgs":   serverMsgs,
+	}
+
+	_, err := doc.Set(ctx, data, firestore.MergeAll)
+	return err
 }
 
 // GetPostRecord retrieves a post record to find the matching Discord Message ID.

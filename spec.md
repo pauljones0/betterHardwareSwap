@@ -11,7 +11,8 @@ Represents a user's subscription to specific keywords or items.
 ### 2. PostRecord (Processed Reddit Post)
 Maintains state on posts we have already evaluated to prevent duplicate alerting and allow for state updates.
 *   **RedditID** `string`: The unique ID of the post (e.g., `t3_1abcdef`).
-*   **ServerMappings** `map[string]string`: Maps Discord Server IDs (`GuildID`) to the specific Discord Message IDs (`MsgID`) sent to that server. Used for retroactively striking out sold listings.
+*   **CleanedTitle** `string`: The summarized title from AI, used for retroactive updates.
+*   **ServerMsgs** `map[string]string`: Maps Discord Server IDs (`GuildID`) to the specific Discord Message IDs (`MsgID`) sent to that server. Used for retroactively striking out sold listings.
 
 ### 3. ServerRouting (Guild Configuration)
 Defines where the bot should send alerts for a specific Discord server.
@@ -21,9 +22,10 @@ Defines where the bot should send alerts for a specific Discord server.
 ## Internal APIs
 
 ### Package: `store`
-*   `GetAllAlerts(ctx) ([]Alert, error)`
+*   `GetAllAlerts(ctx) ([]AlertRule, error)`
 *   `GetPostRecord(ctx, redditID) (*PostRecord, error)`
-*   `SavePostRecord(ctx, record *PostRecord) error`
+*   `SavePostRecord(ctx, redditID, cleanedTitle, serverID, discordMsgID) error`
+*   `SavePostRecords(ctx, redditID, cleanedTitle, serverMsgs) error`
 *   `TrimOldPosts(ctx) error`
 
 ### Package: `ai`

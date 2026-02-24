@@ -3,27 +3,66 @@ package processor
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/pauljones0/betterHardwareSwap/internal/ai"
 	"github.com/pauljones0/betterHardwareSwap/internal/discord"
+	"github.com/pauljones0/betterHardwareSwap/internal/logger"
 	"github.com/pauljones0/betterHardwareSwap/internal/reddit"
 	"github.com/pauljones0/betterHardwareSwap/internal/store"
+	"golang.org/x/sync/errgroup"
 )
 
-// HandleCronScrape is the endpoint struck by Google Cloud Scheduler every minute.
+// Storer defines the database operations needed by the processor.
+type Storer interface {
+	GetAllAlerts(ctx context.Context) ([]store.AlertRule, error)
+	GetPostRecord(ctx context.Context, redditID string) (*store.PostRecord, error)
+	SavePostRecord(ctx context.Context, redditID, cleanedTitle, serverID, discordMsgID string) error
+	SavePostRecords(ctx context.Context, redditID, cleanedTitle string, serverMsgs map[string]string) error
+	TrimOldPosts(ctx context.Context) error
+	GetServerConfig(ctx context.Context, serverID string) (*store.ServerConfig, error)
+	Close() error
+}
+
+// AIService defines the AI operations needed by the processor.
+type AIService interface {
+	CleanRedditPost(ctx context.Context, rawTitle, rawBody string) (*ai.CleanedPost, error)
+	Close()
+}
+
 func HandleCronScrape(w http.ResponseWriter, r *http.Request) {
-	// A simple secret header to ensure randos don't trigger the scraper manually
-	// (Cloud Scheduler can send OIDC tokens, but a secret header is much simpler for this scale)
-	// For now, we'll just run it. If you want, you can add an expected header check.
+	// Generate a simple request ID for the cron run
+	requestID := fmt.Sprintf("cron-%d", time.Now().UnixNano())
+	ctx := logger.WithRequestID(r.Context(), requestID)
 
-	ctx := context.Background()
+	logger.Info(ctx, "Starting cron scrape pipeline")
 
-	if err := RunPipeline(ctx); err != nil {
-		log.Printf("Pipeline Error: %v", err)
+	projectID := os.Getenv("GCP_PROJECT_ID")
+	db, err := store.NewStore(ctx, projectID)
+	if err != nil {
+		logger.Error(ctx, "Failed to init db", "error", err)
+		http.Error(w, "Failed to init db", http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
+	aiSvc, err := ai.NewAIClient(ctx, os.Getenv("GEMINI_API_KEY"))
+	if err != nil {
+		logger.Error(ctx, "Failed to init ai", "error", err)
+		http.Error(w, "Failed to init ai", http.StatusInternalServerError)
+		return
+	}
+	defer aiSvc.Close()
+
+	scraper := reddit.NewScraper()
+	discordClient := discord.NewClient(os.Getenv("DISCORD_BOT_TOKEN"))
+
+	if err := RunPipeline(ctx, db, aiSvc, scraper, discordClient); err != nil {
+		logger.Error(ctx, "Pipeline failed", "error", err)
 		http.Error(w, "Pipeline failed", http.StatusInternalServerError)
 		return
 	}
@@ -33,24 +72,9 @@ func HandleCronScrape(w http.ResponseWriter, r *http.Request) {
 }
 
 // RunPipeline sweeps Reddit, parses via AI, checks user alerts, and dispatches to Discord.
-func RunPipeline(ctx context.Context) error {
-	projectID := os.Getenv("GCP_PROJECT_ID")
-	db, err := store.NewStore(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("failed to init db: %w", err)
-	}
-	defer db.Close()
+func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper *reddit.Scraper, discordClient *discord.Client) error {
 
-	aiSvc, err := ai.NewAIClient(ctx, os.Getenv("GEMINI_API_KEY"))
-	if err != nil {
-		return fmt.Errorf("failed to init ai: %w", err)
-	}
-	defer aiSvc.Close()
-
-	scraper := reddit.NewScraper()
-	discordClient := discord.NewClient(os.Getenv("DISCORD_BOT_TOKEN"))
-
-	posts, err := scraper.FetchNewestPosts()
+	posts, err := scraper.FetchNewestPosts(ctx)
 	if err != nil {
 		// If Reddit is down, we could DM the admin here. For simplicity in V1, we just return the error.
 		return fmt.Errorf("failed to fetch reddit: %w", err)
@@ -67,58 +91,80 @@ func RunPipeline(ctx context.Context) error {
 	// For simplicity, we'll just fetch on demand or assume we have a single server
 	// But let's build it to scale.
 
-	for _, post := range posts {
-		// Check if we've seen this post
-		record, err := db.GetPostRecord(ctx, post.ID)
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(10) // Process max 10 posts concurrently to stay within API quotas
 
-		isNew := (record == nil || err != nil)
+	for _, p := range posts {
+		post := p // closure capture
+		g.Go(func() error {
+			// Check if we've seen this post
+			record, err := db.GetPostRecord(ctx, post.ID)
 
-		// If it's closed/sold or deleted, handle updates.
-		if !isNew {
-			err = handleExistingPostStatus(ctx, discordClient, post, record)
-			if err != nil {
-				log.Printf("Failed to update status for %s: %v", post.ID, err)
+			isNew := (record == nil || err != nil)
+
+			// If it's closed/sold or deleted, handle updates.
+			if !isNew {
+				err = handleExistingPostStatus(ctx, db, discordClient, post, record)
+				if err != nil {
+					logger.Warn(ctx, "Failed to update status", "reddit_id", post.ID, "error", err)
+				}
+				return nil
 			}
-			continue
-		}
 
-		// Only process NEW posts that are not deleted/removed instantly
-		if isNew && post.RemovedByByCategory == "" && !strings.EqualFold(post.LinkFlairText, "Sold") && !strings.EqualFold(post.LinkFlairText, "Closed") {
-			processNewPost(ctx, db, aiSvc, discordClient, post, alerts)
-		}
+			// Only process NEW posts that are not deleted/removed instantly
+			if isNew && post.RemovedByByCategory == "" && !strings.EqualFold(post.LinkFlairText, "Sold") && !strings.EqualFold(post.LinkFlairText, "Closed") {
+				processNewPost(ctx, db, aiSvc, discordClient, post, alerts)
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("parallel processing error: %w", err)
 	}
 
 	// 3. Trim DB to prevent unlimited growth
 	if err := db.TrimOldPosts(ctx); err != nil {
-		log.Printf("Non-fatal: failed to trim old posts: %v", err)
+		logger.Warn(ctx, "Non-fatal: failed to trim old posts", "error", err)
 	}
 
+	logger.Info(ctx, "Pipeline finished successfully")
 	return nil
 }
 
-func handleExistingPostStatus(ctx context.Context, client *discord.Client, post reddit.Post, record *store.PostRecord) error {
+func handleExistingPostStatus(ctx context.Context, db Storer, client *discord.Client, post reddit.Post, record *store.PostRecord) error {
 	// If the post was sold or closed
 	if strings.EqualFold(post.LinkFlairText, "Sold") || strings.EqualFold(post.LinkFlairText, "Closed") {
-		// We need to fetch the channel ID. This implies we need the server config.
-		// Since a single Reddit post could be posted to MULTIPLE Discord servers
-		// (if multiple servers installed the bot), our DB structure simplified this to a 1:1 map.
-		// If you expand to multiple servers, PostRecord needs to hold an array of Message IDs.
-		// For now, assuming 1 Discord Server mapping for MVP simplicity. Let's say this requires
-		// an extra lookup or we just hit a hardcoded channel if we only have 1 server.
-		// *Since you said "let's assume pings are server specific", we'll just update ALL servers that tracked it.*
+		logger.Info(ctx, "Detected SOLD/CLOSED post, updating messages", "reddit_id", post.ID, "count", len(record.ServerMsgs))
 
-		// To fix this cleanly for multi-server, PostRecord should contain Server configurations or we just
-		// fetch the channel mapped to this record.
-		log.Printf("Detected SOLD for %s (Discord MSG: %s)", post.ID, record.DiscordMsgID)
+		for serverID, msgID := range record.ServerMsgs {
+			cfg, err := db.GetServerConfig(ctx, serverID)
+			if err != nil {
+				logger.Warn(ctx, "Could not get config for server during update", "server_id", serverID, "error", err)
+				continue
+			}
 
-		// Striking out logic requires us to republish the embed but greyed out.
-		// For brevity in the scaffolding, we're skipping the exact multi-server lookup here
-		// but the architecture natively supports it by storing {ServerID: MsgID} maps in the PostRecord.
+			// Construct a greyed out, struck-through version of the original deal
+			embed := &discordgo.MessageEmbed{
+				Title:       "~~" + record.CleanedTitle + "~~",
+				URL:         post.URL,
+				Description: fmt.Sprintf("This deal has been marked as **%s** on Reddit.", post.LinkFlairText),
+				Color:       0x2C2F33, // Discord Darker Grey
+				Footer: &discordgo.MessageEmbedFooter{
+					Text: "Deal Closed",
+				},
+			}
+
+			err = client.EditEmbed(cfg.FeedChannelID, msgID, "", embed)
+			if err != nil {
+				logger.Error(ctx, "Failed to edit message", "server_id", serverID, "msg_id", msgID, "error", err)
+			}
+		}
 	}
 
 	// If the post was deleted by user/mods
 	if post.RemovedByByCategory != "" {
-		log.Printf("Detected DELETED for %s", post.ID)
+		logger.Info(ctx, "Detected DELETED post", "reddit_id", post.ID, "category", post.RemovedByByCategory)
 	}
 
 	return nil

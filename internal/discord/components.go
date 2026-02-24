@@ -72,25 +72,38 @@ func processAIWizard(ctx context.Context, i *discordgo.Interaction, query string
 	}
 
 	// Build the embed preview for the user
-	desc := fmt.Sprintf("**Your Request:** *\"%s\"*\n\n**Bot will match posts that have:**\n", query)
+	desc := fmt.Sprintf("### ✨ AI Magic Complete\n\n**Your Intent:** *\"%s\"*\n\n--- \n\n**I will notify you when posts match:**\n", query)
 	if len(wizard.MustHave) > 0 {
-		desc += fmt.Sprintf("- **ALL of:** `%s`\n", strings.Join(wizard.MustHave, "`, `"))
+		desc += fmt.Sprintf("✅ **ALL of:** `%s`\n", strings.Join(wizard.MustHave, "`, `"))
 	}
 	if len(wizard.AnyOf) > 0 {
-		desc += fmt.Sprintf("- **AT LEAST ONE of:** `%s`\n", strings.Join(wizard.AnyOf, "`, `"))
+		desc += fmt.Sprintf("🔍 **AT LEAST ONE of:** `%s`\n", strings.Join(wizard.AnyOf, "`, `"))
 	}
 	if len(wizard.MustNot) > 0 {
-		desc += fmt.Sprintf("- **NONE of:** `%s`\n", strings.Join(wizard.MustNot, "`, `"))
+		desc += fmt.Sprintf("🚫 **NONE of:** `%s`\n", strings.Join(wizard.MustNot, "`, `"))
 	}
 
+	color := 0x5865F2 // Blurple
 	if wizard.TooBroad {
-		desc += "\n⚠️ **WARNING: This query is very broad and might result in a lot of spam. Are you sure?**"
+		color = 0xFEE75C // Yellow for warning
+		desc += "\n--- \n"
+		desc += "⚠️ **CAUTION: Query is Very Broad**\n"
+		desc += fmt.Sprintf("> *%s*\n\n", wizard.BroadReason)
+		if len(wizard.BroadSuggestions) > 0 {
+			desc += "**Pro Tips to Narrow it Down:**\n"
+			for _, s := range wizard.BroadSuggestions {
+				desc += fmt.Sprintf("💡 *%s*\n", s)
+			}
+		}
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "🤖 AI Keyword Match Preview",
+		Title:       "🎯 Match Rule Preview",
 		Description: desc,
-		Color:       0x5865F2, // Blurple
+		Color:       color,
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: "https://em-content.zobj.net/source/microsoft-teams/363/robot_1f916.png",
+		},
 	}
 
 	// We inject the AI's generated arrays into the custom ID of the button so we don't have to keep state in memory!

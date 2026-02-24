@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/pauljones0/betterHardwareSwap/internal/logger"
 )
 
 // Global discord session for handling Webhook interaction payloads types.
@@ -85,13 +86,14 @@ func HandleInteraction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := logger.WithRequestID(r.Context(), interaction.ID)
+	logger.Info(ctx, "Handling Discord interaction", "type", interaction.Type, "user", interaction.Member.User.ID)
+
 	// 5. Route to appropriate handler
-	handleInteractionEvent(w, &interaction)
+	handleInteractionEvent(ctx, w, &interaction)
 }
 
-func handleInteractionEvent(w http.ResponseWriter, i *discordgo.Interaction) {
-	ctx := context.Background() // A real app might extract a timeout from the request
-
+func handleInteractionEvent(ctx context.Context, w http.ResponseWriter, i *discordgo.Interaction) {
 	switch i.Type {
 	case discordgo.InteractionApplicationCommand:
 		routeSlashCommand(ctx, w, i)

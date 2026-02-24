@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.agents
+.vscode
+tmp
+*.exe
+data/
+brain/
+*.md
+Dockerfile
+go.sum
+go.mod
+# (We still need go.mod/sum in the builder, but this prevents the entire root from being copied into the final stage if we were messy)
+# Actually, builder needs them, so we shouldn't ignore them globally if we do `COPY . .`
+# But we can be more specific in the builder.

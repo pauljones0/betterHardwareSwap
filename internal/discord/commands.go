@@ -80,25 +80,30 @@ func handleSetup(ctx context.Context, w http.ResponseWriter, i *discordgo.Intera
 
 func handleHelp(ctx context.Context, w http.ResponseWriter, i *discordgo.Interaction) {
 	embed := &discordgo.MessageEmbed{
-		Title:       "🛠️ Canadian Hardware Swap Bot",
-		Description: "I monitor `r/CanadianHardwareSwap` every minute and ping you when your dream gear is posted!",
+		Title:       "🛡️ Better Hardware Swap Help",
+		Description: "I'm your agentic companion for tracking PC gear in Canada. I scan `r/CanadianHardwareSwap` in real-time.",
 		Color:       0x00FF00, // Green
 		Fields: []*discordgo.MessageEmbedField{
 			{
-				Name:  "🔔 `/alert add`",
-				Value: "Opens a form where you describe what you're looking for in plain English. My AI brain 🧠 will create an optimized search rule for you.",
+				Name:   "✨ AI-Powered Alerts",
+				Value:  "Run `/alert add` and select **'Help Me Write It'**. Just describe your goal (e.g., *\"A 30-series GPU in Vancouver under $400\"*) and my AI handles the logic.",
+				Inline: false,
 			},
 			{
-				Name:  "📋 `/alert list`",
-				Value: "Shows all your active keyword alerts and lets you delete them.",
+				Name:   "🔧 Technical Querying",
+				Value:  "Select **'I'll Type It Myself'** to use Boolean logic like `(rtx AND 4090) NOT broken`.",
+				Inline: false,
 			},
 			{
-				Name:  "🎯 How it works",
-				Value: "1. A user posts a deal on Reddit.\n2. I clean up the post and put it in the Feed channel.\n3. If it matches your alert, I ping you in the Ping channel.",
+				Name:  "📋 Management",
+				Value: "Use `/alert list` to view or delete your current subscriptions.",
 			},
 		},
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: "https://em-content.zobj.net/source/microsoft-teams/363/shield_1f6e1-fe0f.png",
+		},
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "Clean, fast, and serverless.",
+			Text: "Agentic • Serverless • Open Source",
 		},
 	}
 

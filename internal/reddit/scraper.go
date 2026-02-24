@@ -1,11 +1,14 @@
 package reddit
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/pauljones0/betterHardwareSwap/internal/logger"
 )
 
 // Reddit struct maps the nested structure of Reddit's .json feed.
@@ -47,7 +50,7 @@ func NewScraper() *Scraper {
 }
 
 // FetchNewestPosts hits the .json endpoint of r/CanadianHardwareSwap.
-func (s *Scraper) FetchNewestPosts() ([]Post, error) {
+func (s *Scraper) FetchNewestPosts(ctx context.Context) ([]Post, error) {
 	maxRetries := 8
 	backoff := 2 * time.Second
 	var lastErr error
@@ -55,7 +58,7 @@ func (s *Scraper) FetchNewestPosts() ([]Post, error) {
 	var body []byte
 
 	for i := 0; i < maxRetries; i++ {
-		req, err := http.NewRequest("GET", "https://www.reddit.com/r/CanadianHardwareSwap/.json?sort=new&limit=100", nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://www.reddit.com/r/CanadianHardwareSwap/.json?sort=new&limit=100", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -90,9 +93,15 @@ func (s *Scraper) FetchNewestPosts() ([]Post, error) {
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500 {
 			resp.Body.Close()
-			time.Sleep(backoff)
-			backoff *= 2
-			continue
+			logger.Warn(ctx, "Reddit request failed, retrying", "status", resp.StatusCode, "retry", i+1, "backoff", backoff)
+
+			select {
+			case <-time.After(backoff):
+				backoff *= 2
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 
 		body, _ = io.ReadAll(resp.Body)

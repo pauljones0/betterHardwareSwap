@@ -3,25 +3,24 @@ package processor
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/pauljones0/betterHardwareSwap/internal/ai"
 	"github.com/pauljones0/betterHardwareSwap/internal/discord"
+	"github.com/pauljones0/betterHardwareSwap/internal/logger"
 	"github.com/pauljones0/betterHardwareSwap/internal/reddit"
 	"github.com/pauljones0/betterHardwareSwap/internal/store"
 )
 
 // processNewPost handles sending the post to Gemini, matching against alerts, and dispatching.
-func processNewPost(ctx context.Context, db *store.Store, aiSvc *ai.AIClient, client *discord.Client, post reddit.Post, alerts []store.AlertRule) {
-	log.Printf("Processing NEW post: %s - %s", post.ID, post.Title)
+func processNewPost(ctx context.Context, db Storer, aiSvc AIService, client *discord.Client, post reddit.Post, alerts []store.AlertRule) {
+	logger.Debug(ctx, "Processing NEW post", "reddit_id", post.ID, "title", post.Title)
 
 	// 1. Give Gemini the messy post to clean up
 	cleaned, err := aiSvc.CleanRedditPost(ctx, post.Title, post.SelfText)
 	if err != nil {
-		log.Printf("Gemini failed to clean post %s: %v", post.ID, err)
+		logger.Error(ctx, "Gemini failed to clean post", "reddit_id", post.ID, "error", err)
 		return
 	}
 
@@ -55,13 +54,13 @@ func processNewPost(ctx context.Context, db *store.Store, aiSvc *ai.AIClient, cl
 
 	// Let's create the beautiful Dispatch Embed
 	embed := &discordgo.MessageEmbed{
-		Title:       cleaned.Title,
+		Title:       "📦 " + cleaned.Title,
 		URL:         post.URL, // Click title to go to reddit
 		Description: cleaned.Description,
 		Color:       getColor(post.Score, post.NumComments),
 		Fields:      []*discordgo.MessageEmbedField{},
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("👍 %d | 💬 %d", post.Score, post.NumComments),
+			Text: fmt.Sprintf("r/CanadianHardwareSwap • 👍 %d | 💬 %d", post.Score, post.NumComments),
 		},
 		Timestamp: time.Unix(int64(post.CreatedUtc), 0).Format(time.RFC3339),
 	}
@@ -88,10 +87,12 @@ func processNewPost(ctx context.Context, db *store.Store, aiSvc *ai.AIClient, cl
 	// 4. Dispatch! (Since we don't have a `GetAllServers` func right now, we'll use the matches)
 	// If you want it to post even when no matches happen, add `GetAllServers` to store.
 
+	serverMsgs := make(map[string]string)
+
 	for serverID, userIDs := range matches {
 		cfg, err := db.GetServerConfig(ctx, serverID)
 		if err != nil {
-			log.Printf("Could not get config for server %s: %v", serverID, err)
+			logger.Error(ctx, "Could not get config for server", "server_id", serverID, "error", err)
 			continue
 		}
 
@@ -102,10 +103,11 @@ func processNewPost(ctx context.Context, db *store.Store, aiSvc *ai.AIClient, cl
 			_ = client.AddReaction(cfg.FeedChannelID, msgID, "%F0%9F%91%8D") // Thumbs up
 			_ = client.AddReaction(cfg.FeedChannelID, msgID, "%F0%9F%91%8E") // Thumbs down
 
-			// Save mapping to database
-			_ = db.SavePostRecord(ctx, post.ID, msgID)
+			// Track mapping for batched save
+			serverMsgs[serverID] = msgID
 		} else {
-			log.Printf("Failed to post feed to server %s: %v", serverID, err)
+			logger.Error(ctx, "Failed to post feed to server", "server_id", serverID, "error", err)
+			continue
 		}
 
 		// Send deduped Ping to Ping Channel
@@ -117,6 +119,13 @@ func processNewPost(ctx context.Context, db *store.Store, aiSvc *ai.AIClient, cl
 			pingContent += fmt.Sprintf("- **Match Found in the Deal Feed!** <https://discord.com/channels/%s/%s/%s>", serverID, cfg.FeedChannelID, msgID)
 
 			_ = client.SendMessage(cfg.PingChannelID, pingContent)
+		}
+	}
+
+	// 5. Batch save all server message IDs
+	if len(serverMsgs) > 0 {
+		if err := db.SavePostRecords(ctx, post.ID, cleaned.Title, serverMsgs); err != nil {
+			logger.Error(ctx, "Failed to batch save post records", "reddit_id", post.ID, "error", err)
 		}
 	}
 }

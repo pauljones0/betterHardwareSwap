@@ -28,8 +28,15 @@
 *   **Req 5.2**: The data store must support a pay-per-operation model (e.g., Firestore Native Mode) without persistent hourly costs.
 
 ### 2. Observability & Maintainability
-*   **Req 6.1**: The system must output structured logs capable of tracing a single request across the interaction, scraping, and Discord webhook bounds.
-*   **Req 6.2**: The data store must proactively trim (garbage collect) post records older than 7 days to maintain lightweight operation and minimal storage costs.
+*   **Req 6.1**: The system must output structured JSON logs capable of tracing a single request across the interaction, scraping, and Discord webhook bounds using a `request_id`.
+*   **Req 6.2**: The data store must proactively trim (garbage collect) post records older than the 500 most recent items.
+*   **Req 6.3**: The processing pipeline must utilize parallel execution to ensure all new posts are evaluated within the 60-second cron window even as the number of active alerts grows.
 
 ### 3. Multi-Tenancy
 *   **Req 7.1**: The architecture must support the bot being installed in multiple Discord servers simultaneously, keeping channel routing boundaries distinct.
+
+## Security Requirements
+
+*   **Req 8.1**: The system must verify the cryptographic signature of every incoming Discord interaction.
+*   **Req 8.2**: The application container must run as a non-root user.
+*   **Req 8.3**: All AI prompts must include headers to mitigate instruction injection attacks.
