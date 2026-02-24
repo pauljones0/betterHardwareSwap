@@ -7,83 +7,101 @@ import (
 	"github.com/pauljones0/betterHardwareSwap/internal/ai"
 	"github.com/pauljones0/betterHardwareSwap/internal/reddit"
 	"github.com/pauljones0/betterHardwareSwap/internal/store"
+	"github.com/stretchr/testify/mock"
 )
 
-// MockStore implements Storer
+// MockStore implements Storer using testify/mock
 type MockStore struct {
-	GetAllAlertsFn    func(ctx context.Context) ([]store.AlertRule, error)
-	GetPostRecordFn   func(ctx context.Context, redditID string) (*store.PostRecord, error)
-	SavePostRecordFn  func(ctx context.Context, redditID, cleanedTitle, serverID, discordMsgID string) error
-	SavePostRecordsFn func(ctx context.Context, redditID, cleanedTitle string, serverMsgs map[string]string) error
-	TrimOldPostsFn    func(ctx context.Context) error
-	GetServerConfigFn func(ctx context.Context, serverID string) (*store.ServerConfig, error)
-	CloseFn           func() error
+	mock.Mock
 }
 
 func (m *MockStore) GetAllAlerts(ctx context.Context) ([]store.AlertRule, error) {
-	return m.GetAllAlertsFn(ctx)
+	args := m.Called(ctx)
+	return args.Get(0).([]store.AlertRule), args.Error(1)
 }
 func (m *MockStore) GetPostRecord(ctx context.Context, redditID string) (*store.PostRecord, error) {
-	return m.GetPostRecordFn(ctx, redditID)
+	args := m.Called(ctx, redditID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*store.PostRecord), args.Error(1)
 }
 func (m *MockStore) SavePostRecord(ctx context.Context, redditID, cleanedTitle, serverID, discordMsgID string) error {
-	return m.SavePostRecordFn(ctx, redditID, cleanedTitle, serverID, discordMsgID)
+	args := m.Called(ctx, redditID, cleanedTitle, serverID, discordMsgID)
+	return args.Error(0)
 }
 func (m *MockStore) SavePostRecords(ctx context.Context, redditID, cleanedTitle string, serverMsgs map[string]string) error {
-	return m.SavePostRecordsFn(ctx, redditID, cleanedTitle, serverMsgs)
+	args := m.Called(ctx, redditID, cleanedTitle, serverMsgs)
+	return args.Error(0)
 }
-func (m *MockStore) TrimOldPosts(ctx context.Context) error { return m.TrimOldPostsFn(ctx) }
+func (m *MockStore) TrimOldPosts(ctx context.Context) error {
+	return m.Called(ctx).Error(0)
+}
 func (m *MockStore) GetServerConfig(ctx context.Context, serverID string) (*store.ServerConfig, error) {
-	return m.GetServerConfigFn(ctx, serverID)
+	args := m.Called(ctx, serverID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*store.ServerConfig), args.Error(1)
 }
-func (m *MockStore) Close() error { return m.CloseFn() }
+func (m *MockStore) Close() error {
+	return m.Called().Error(0)
+}
 
-// MockAI implements AIService
+// MockAI implements AIService using testify/mock
 type MockAI struct {
-	CleanRedditPostFn func(ctx context.Context, rawTitle, rawBody string) (*ai.CleanedPost, error)
-	CloseFn           func()
+	mock.Mock
 }
 
 func (m *MockAI) CleanRedditPost(ctx context.Context, rawTitle, rawBody string) (*ai.CleanedPost, error) {
-	return m.CleanRedditPostFn(ctx, rawTitle, rawBody)
+	args := m.Called(ctx, rawTitle, rawBody)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*ai.CleanedPost), args.Error(1)
 }
-func (m *MockAI) Close() { m.CloseFn() }
+func (m *MockAI) Close() {
+	m.Called()
+}
 
-// MockDiscord implements DiscordMessenger
+// MockDiscord implements DiscordMessenger using testify/mock
 type MockDiscord struct {
-	SendEmbedWithComponentsFn func(channelID string, content string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) (string, error)
-	AddReactionFn             func(channelID, messageID, emoji string) error
-	SendMessageFn             func(channelID, content string) error
-	EditEmbedFn               func(channelID, messageID, content string, embed *discordgo.MessageEmbed) error
+	mock.Mock
 }
 
 func (m *MockDiscord) SendEmbedWithComponents(channelID string, content string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) (string, error) {
-	return m.SendEmbedWithComponentsFn(channelID, content, embed, components)
+	args := m.Called(channelID, content, embed, components)
+	return args.String(0), args.Error(1)
 }
 func (m *MockDiscord) AddReaction(channelID, messageID, emoji string) error {
-	return m.AddReactionFn(channelID, messageID, emoji)
+	return m.Called(channelID, messageID, emoji).Error(0)
 }
 func (m *MockDiscord) SendMessage(channelID, content string) error {
-	return m.SendMessageFn(channelID, content)
+	return m.Called(channelID, content).Error(0)
 }
 func (m *MockDiscord) EditEmbed(channelID, messageID, content string, embed *discordgo.MessageEmbed) error {
-	return m.EditEmbedFn(channelID, messageID, content, embed)
+	return m.Called(channelID, messageID, content, embed).Error(0)
 }
 
-// MockScraper implements Scraper
+// MockScraper implements Scraper using testify/mock
 type MockScraper struct {
-	FetchNewestPostsFn func(ctx context.Context) ([]reddit.Post, error)
+	mock.Mock
 }
 
 func (m *MockScraper) FetchNewestPosts(ctx context.Context) ([]reddit.Post, error) {
-	return m.FetchNewestPostsFn(ctx)
+	args := m.Called(ctx)
+	return args.Get(0).([]reddit.Post), args.Error(1)
 }
 
-// MockCache implements ServerConfigGetter
+// MockCache implements ServerConfigGetter using testify/mock
 type MockCache struct {
-	GetServerConfigFn func(ctx context.Context, serverID string) (*store.ServerConfig, error)
+	mock.Mock
 }
 
 func (m *MockCache) GetServerConfig(ctx context.Context, serverID string) (*store.ServerConfig, error) {
-	return m.GetServerConfigFn(ctx, serverID)
+	args := m.Called(ctx, serverID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*store.ServerConfig), args.Error(1)
 }

@@ -21,22 +21,21 @@ Defines where the bot should send alerts for a specific Discord server.
 
 ## Internal APIs
 
-### Package: `store`
-*   `GetAllAlerts(ctx) ([]AlertRule, error)`
-*   `GetPostRecord(ctx, redditID) (*PostRecord, error)`
-*   `SavePostRecord(ctx, redditID, cleanedTitle, serverID, discordMsgID) error`
-*   `SavePostRecords(ctx, redditID, cleanedTitle, serverMsgs) error`
-*   `TrimOldPosts(ctx) error`
+### Package: `processor`
+*   `RunPipeline(ctx, db, aiSvc, scraper, discordClient) error`
+*   `HandleCronScrape(w, r)` (located in `handler.go`)
 
 ### Package: `ai`
 *   `CleanRedditPost(ctx, rawTitle, rawBody) (*CleanedPost, error)`
 *   `RunKeywordWizard(ctx, userRequest, promptOverride) (*KeywordWizardResponse, error)`
 *   `ValidateManualQuery(ctx, userQuery, promptOverride) (*KeywordWizardResponse, error)`
+*   `prompts.go` contains all AI system and user prompt templates.
 
 ### Package: `discord`
 *   `HandleInteraction(w http.ResponseWriter, r *http.Request)`
 *   `SendAlert(channelID, embed) (messageID string, error)`
 *   `UpdateMessageStatus(channelID, messageID, status) error`
+*   Logic split across `modals.go` (Wizard/Manual flows), `alerts.go` (Lists/Compaction), and `components.go` (Routing).
 
 ### Package: `reddit`
 *   `FetchNewestPosts(ctx) ([]Post, error)`
