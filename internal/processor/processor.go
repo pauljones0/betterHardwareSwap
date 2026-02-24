@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/pauljones0/betterHardwareSwap/internal/ai"
 	"github.com/pauljones0/betterHardwareSwap/internal/discord"
@@ -42,58 +41,6 @@ func RunPipeline(ctx context.Context) error {
 	}
 	defer db.Close()
 
-	// Pick a user token to scrape with
-	cred, err := db.GetRandomUserCredential(ctx)
-	if err != nil {
-		log.Printf("No Reddit credentials configured (or error: %v). Skipping scrape.", err)
-		return nil
-	}
-
-	redditClientID := os.Getenv("BACKEND_API_REDDIT_CLIENT_ID")
-	if redditClientID == "" {
-		redditClientID = os.Getenv("REDDIT_CLIENT_ID")
-	}
-	redditClientSecret := os.Getenv("BACKEND_API_REDDIT_CLIENT_SECRET")
-	if redditClientSecret == "" {
-		redditClientSecret = os.Getenv("REDDIT_CLIENT_SECRET")
-	}
-
-	// Deal with token refresh if expired (or expiring in next 5 min)
-	if time.Now().Add(5 * time.Minute).After(cred.ExpiresAt) {
-		log.Printf("Token for user %s is expired/expiring, refreshing...", cred.UserID)
-		decRefresh, err := reddit.Decrypt(cred.RefreshToken)
-		if err != nil {
-			return fmt.Errorf("failed to decrypt refresh token: %w", err)
-		}
-
-		refreshResp, err := reddit.RefreshAccessToken(decRefresh, redditClientID, redditClientSecret)
-		if err != nil {
-			// If we get a bad request on refresh, we assume they revoked auth.
-			log.Printf("Token refresh failed for %s, wiping credentials: %v", cred.UserID, err)
-			_ = db.DeleteUserCredential(ctx, cred.UserID)
-			return fmt.Errorf("token refresh failed: %w", err)
-		}
-
-		encAccess, _ := reddit.Encrypt(refreshResp.AccessToken)
-		cred.AccessToken = encAccess
-		cred.ExpiresAt = time.Now().Add(time.Duration(refreshResp.ExpiresIn) * time.Second)
-
-		// They don't always send a new refresh token, only update if they did
-		if refreshResp.RefreshToken != "" {
-			encRefresh, _ := reddit.Encrypt(refreshResp.RefreshToken)
-			cred.RefreshToken = encRefresh
-		}
-
-		if err := db.SaveUserCredential(ctx, *cred); err != nil {
-			log.Printf("Failed to save refreshed token: %v", err)
-		}
-	}
-
-	decAccess, err := reddit.Decrypt(cred.AccessToken)
-	if err != nil {
-		return fmt.Errorf("failed to decrypt access token: %w", err)
-	}
-
 	aiSvc, err := ai.NewAIClient(ctx, os.Getenv("GEMINI_API_KEY"))
 	if err != nil {
 		return fmt.Errorf("failed to init ai: %w", err)
@@ -103,7 +50,7 @@ func RunPipeline(ctx context.Context) error {
 	scraper := reddit.NewScraper()
 	discordClient := discord.NewClient(os.Getenv("DISCORD_BOT_TOKEN"))
 
-	posts, err := scraper.FetchNewestPosts(decAccess)
+	posts, err := scraper.FetchNewestPosts()
 	if err != nil {
 		// If Reddit is down, we could DM the admin here. For simplicity in V1, we just return the error.
 		return fmt.Errorf("failed to fetch reddit: %w", err)

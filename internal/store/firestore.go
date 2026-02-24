@@ -60,15 +60,6 @@ type SystemPrompt struct {
 	UpdatedAt  time.Time `firestore:"updated_at"`
 }
 
-// UserCredential stores the encrypted Reddit OAuth tokens for a Discord user.
-type UserCredential struct {
-	UserID       string    `firestore:"user_id"`
-	AccessToken  string    `firestore:"access_token"`  // Encrypted AES-GCM
-	RefreshToken string    `firestore:"refresh_token"` // Encrypted AES-GCM
-	ExpiresAt    time.Time `firestore:"expires_at"`
-	UpdatedAt    time.Time `firestore:"updated_at"`
-}
-
 // NewStore initializes a new Firestore client using application default credentials.
 func NewStore(ctx context.Context, projectID string) (*Store, error) {
 	client, err := firestore.NewClient(ctx, projectID)
@@ -350,56 +341,5 @@ func (s *Store) SetSystemPrompt(ctx context.Context, key, promptText string) err
 		UpdatedAt:  time.Now(),
 	}
 	_, err := s.client.Collection("system_prompts").Doc(key).Set(ctx, sp)
-	return err
-}
-
-// --- Credentials ---
-
-// SaveUserCredential securely stores a user's encrypted Reddit OAuth tokens.
-func (s *Store) SaveUserCredential(ctx context.Context, cred UserCredential) error {
-	cred.UpdatedAt = time.Now()
-	// Storing by UserID instead of random doc ID makes it easy to fetch/update for a specific user.
-	_, err := s.client.Collection("user_credentials").Doc(cred.UserID).Set(ctx, cred)
-	return err
-}
-
-// GetUserCredential retrieves a user's encrypted Reddit OAuth tokens.
-func (s *Store) GetUserCredential(ctx context.Context, userID string) (*UserCredential, error) {
-	doc, err := s.client.Collection("user_credentials").Doc(userID).Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var cred UserCredential
-	if err := doc.DataTo(&cred); err != nil {
-		return nil, err
-	}
-	return &cred, nil
-}
-
-// GetRandomUserCredential fetches an arbitrary valid user credential.
-// In Firestore, picking a true random document is tricky without knowing IDs.
-// For our worker daemon, limiting to 1 document provides a quick proxy for "Give me ANY user token"
-func (s *Store) GetRandomUserCredential(ctx context.Context) (*UserCredential, error) {
-	iter := s.client.Collection("user_credentials").Limit(1).Documents(ctx)
-	defer iter.Stop()
-
-	doc, err := iter.Next()
-	if err == iterator.Done {
-		return nil, fmt.Errorf("no user credentials found in database")
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var cred UserCredential
-	if err := doc.DataTo(&cred); err != nil {
-		return nil, err
-	}
-	return &cred, nil
-}
-
-// DeleteUserCredential removes a user's OAuth tokens (e.g., if they revoke permissions).
-func (s *Store) DeleteUserCredential(ctx context.Context, userID string) error {
-	_, err := s.client.Collection("user_credentials").Doc(userID).Delete(ctx)
 	return err
 }
