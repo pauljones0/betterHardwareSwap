@@ -17,6 +17,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type ServerConfigGetter interface {
+	GetServerConfig(ctx context.Context, serverID string) (*store.ServerConfig, error)
+}
+
 // Storer defines the database operations needed by the processor.
 type Storer interface {
 	GetAllAlerts(ctx context.Context) ([]store.AlertRule, error)
@@ -86,10 +90,8 @@ func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper *reddi
 		return fmt.Errorf("failed to load alerts: %w", err)
 	}
 
-	// 2. Fetch server routing configs
-	// (Cache these in memory to avoid hammering DB for 100 posts)
-	// For simplicity, we'll just fetch on demand or assume we have a single server
-	// But let's build it to scale.
+	// 2. Fetch server routing configs (using a TTL cache)
+	cache := NewConfigCache(db, 5*time.Minute)
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(10) // Process max 10 posts concurrently to stay within API quotas
@@ -104,7 +106,7 @@ func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper *reddi
 
 			// If it's closed/sold or deleted, handle updates.
 			if !isNew {
-				err = handleExistingPostStatus(ctx, db, discordClient, post, record)
+				err = handleExistingPostStatus(ctx, cache, discordClient, post, record)
 				if err != nil {
 					logger.Warn(ctx, "Failed to update status", "reddit_id", post.ID, "error", err)
 				}
@@ -113,7 +115,7 @@ func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper *reddi
 
 			// Only process NEW posts that are not deleted/removed instantly
 			if isNew && post.RemovedByByCategory == "" && !strings.EqualFold(post.LinkFlairText, "Sold") && !strings.EqualFold(post.LinkFlairText, "Closed") {
-				processNewPost(ctx, db, aiSvc, discordClient, post, alerts)
+				processNewPost(ctx, db, cache, aiSvc, discordClient, post, alerts)
 			}
 			return nil
 		})
@@ -132,13 +134,13 @@ func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper *reddi
 	return nil
 }
 
-func handleExistingPostStatus(ctx context.Context, db Storer, client *discord.Client, post reddit.Post, record *store.PostRecord) error {
+func handleExistingPostStatus(ctx context.Context, cache ServerConfigGetter, client *discord.Client, post reddit.Post, record *store.PostRecord) error {
 	// If the post was sold or closed
 	if strings.EqualFold(post.LinkFlairText, "Sold") || strings.EqualFold(post.LinkFlairText, "Closed") {
 		logger.Info(ctx, "Detected SOLD/CLOSED post, updating messages", "reddit_id", post.ID, "count", len(record.ServerMsgs))
 
 		for serverID, msgID := range record.ServerMsgs {
-			cfg, err := db.GetServerConfig(ctx, serverID)
+			cfg, err := cache.GetServerConfig(ctx, serverID)
 			if err != nil {
 				logger.Warn(ctx, "Could not get config for server during update", "server_id", serverID, "error", err)
 				continue

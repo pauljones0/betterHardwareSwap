@@ -27,7 +27,8 @@ func routeModalSubmit(ctx context.Context, w http.ResponseWriter, i *discordgo.I
 
 	if data.CustomID == "modal_alert_wizard_ai" {
 		rawQuery := data.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
-		go processAIWizard(context.Background(), i, rawQuery)
+		sanitizedQuery := Sanitize(rawQuery)
+		go processAIWizard(context.Background(), i, sanitizedQuery)
 	} else if strings.HasPrefix(data.CustomID, "modal_alert_wizard_manual") {
 		// e.g. modal_alert_wizard_manual|edit_count
 		editCount := 0
@@ -38,7 +39,11 @@ func routeModalSubmit(ctx context.Context, w http.ResponseWriter, i *discordgo.I
 
 		title := data.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
 		query := data.Components[1].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
-		go processManualWizard(context.Background(), i, title, query, editCount)
+
+		sanitizedTitle := Sanitize(title)
+		sanitizedQuery := Sanitize(query)
+
+		go processManualWizard(context.Background(), i, sanitizedTitle, sanitizedQuery, editCount)
 	} else {
 		client := NewClient(os.Getenv("DISCORD_BOT_TOKEN"))
 		client.SendFollowupMessage(i, "⚠️ Unknown modal ID")
@@ -71,38 +76,56 @@ func processAIWizard(ctx context.Context, i *discordgo.Interaction, query string
 		return
 	}
 
-	// Build the embed preview for the user
-	desc := fmt.Sprintf("### ✨ AI Magic Complete\n\n**Your Intent:** *\"%s\"*\n\n--- \n\n**I will notify you when posts match:**\n", query)
+	color := 0x5865F2 // Blurple
+	var fields []*discordgo.MessageEmbedField
+
 	if len(wizard.MustHave) > 0 {
-		desc += fmt.Sprintf("✅ **ALL of:** `%s`\n", strings.Join(wizard.MustHave, "`, `"))
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   "✅ Must Include",
+			Value:  fmt.Sprintf("`%s`", strings.Join(wizard.MustHave, "`, `")),
+			Inline: false,
+		})
 	}
 	if len(wizard.AnyOf) > 0 {
-		desc += fmt.Sprintf("🔍 **AT LEAST ONE of:** `%s`\n", strings.Join(wizard.AnyOf, "`, `"))
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   "🔍 Match Any Of",
+			Value:  fmt.Sprintf("`%s`", strings.Join(wizard.AnyOf, "`, `")),
+			Inline: false,
+		})
 	}
 	if len(wizard.MustNot) > 0 {
-		desc += fmt.Sprintf("🚫 **NONE of:** `%s`\n", strings.Join(wizard.MustNot, "`, `"))
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   "🚫 Exclude",
+			Value:  fmt.Sprintf("`%s`", strings.Join(wizard.MustNot, "`, `")),
+			Inline: false,
+		})
 	}
 
-	color := 0x5865F2 // Blurple
 	if wizard.TooBroad {
-		color = 0xFEE75C // Yellow for warning
-		desc += "\n--- \n"
-		desc += "⚠️ **CAUTION: Query is Very Broad**\n"
-		desc += fmt.Sprintf("> *%s*\n\n", wizard.BroadReason)
+		color = 0xFEE75C // Yellow
+		suggestions := ""
 		if len(wizard.BroadSuggestions) > 0 {
-			desc += "**Pro Tips to Narrow it Down:**\n"
 			for _, s := range wizard.BroadSuggestions {
-				desc += fmt.Sprintf("💡 *%s*\n", s)
+				suggestions += fmt.Sprintf("• %s\n", s)
 			}
 		}
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   "⚠️ Search is Too Broad",
+			Value:  fmt.Sprintf("> %s\n\n**Suggestions:**\n%s", wizard.BroadReason, suggestions),
+			Inline: false,
+		})
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "🎯 Match Rule Preview",
-		Description: desc,
+		Title:       "🎯 Match Rule Created",
+		Description: fmt.Sprintf("I've converted your request into a precise search rule.\n\n**Intent:** *\"%s\"*", query),
 		Color:       color,
+		Fields:      fields,
 		Thumbnail: &discordgo.MessageEmbedThumbnail{
 			URL: "https://em-content.zobj.net/source/microsoft-teams/363/robot_1f916.png",
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "You can refine this rule anytime using /alert list",
 		},
 	}
 
@@ -373,6 +396,15 @@ func routeComponentInteraction(ctx context.Context, w http.ResponseWriter, i *di
 				Content:    "✨ **Alert Saved Successfully!**",
 				Embeds:     nil,                            // Clear the embed
 				Components: []discordgo.MessageComponent{}, // Clear the buttons
+			},
+		})
+
+	case "mute_item":
+		writeJSON(w, discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "🔇 **Feature coming soon!** Soon you'll be able to mute specific items directly from the feed.",
+				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 

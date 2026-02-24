@@ -26,6 +26,8 @@ type Post struct {
 	Title               string  `json:"title"`
 	SelfText            string  `json:"selftext"`
 	URL                 string  `json:"url"` // Used for image thumbnails if present
+	Permalink           string  `json:"permalink"`
+	Subreddit           string  `json:"subreddit"`
 	CreatedUtc          float64 `json:"created_utc"`
 	Author              string  `json:"author"`
 	Score               int     `json:"score"`

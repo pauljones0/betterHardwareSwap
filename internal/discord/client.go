@@ -87,6 +87,26 @@ func (c *Client) SendEmbed(channelID string, content string, embed *discordgo.Me
 	return msg.ID, nil
 }
 
+// SendEmbedWithComponents sends a message with an Embed and UI components to a channel.
+func (c *Client) SendEmbedWithComponents(channelID string, content string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) (string, error) {
+	payload := map[string]interface{}{
+		"content":    content,
+		"embeds":     []*discordgo.MessageEmbed{embed},
+		"components": components,
+	}
+
+	resp, err := c.doRequest("POST", "/channels/"+channelID+"/messages", payload)
+	if err != nil {
+		return "", err
+	}
+
+	var msg discordgo.Message
+	if err := json.Unmarshal(resp, &msg); err != nil {
+		return "", err
+	}
+	return msg.ID, nil
+}
+
 // EditEmbed updates an existing message with a new embed.
 func (c *Client) EditEmbed(channelID, messageID, content string, embed *discordgo.MessageEmbed) error {
 	payload := discordgo.MessageEdit{

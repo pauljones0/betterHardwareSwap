@@ -17,7 +17,10 @@ import (
 
 // Global discord session for handling Webhook interaction payloads types.
 // We don't actually use this session to connect a websocket, just to utilize their struct definitions.
-var session *discordgo.Session
+var (
+	session       *discordgo.Session
+	globalLimiter = NewRateLimiter()
+)
 
 func init() {
 	var err error
@@ -87,7 +90,22 @@ func HandleInteraction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := logger.WithRequestID(r.Context(), interaction.ID)
-	logger.Info(ctx, "Handling Discord interaction", "type", interaction.Type, "user", interaction.Member.User.ID)
+
+	// Rate limiting check
+	userID := ""
+	if interaction.Member != nil && interaction.Member.User != nil {
+		userID = interaction.Member.User.ID
+	} else if interaction.User != nil {
+		userID = interaction.User.ID
+	}
+
+	if userID != "" && !globalLimiter.Allow(userID) {
+		logger.Warn(ctx, "Rate limit exceeded for user", "user_id", userID)
+		respondError(w, "You are doing that too fast! Please wait a few seconds.")
+		return
+	}
+
+	logger.Info(ctx, "Handling Discord interaction", "type", interaction.Type, "user", userID)
 
 	// 5. Route to appropriate handler
 	handleInteractionEvent(ctx, w, &interaction)
