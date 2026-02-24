@@ -5,7 +5,7 @@
 ### 1. Reddit Ingestion
 *   **Req 1.1**: The system must fetch the latest posts from `r/CanadianHardwareSwap` at an interval no longer than 60 seconds.
 *   **Req 1.2**: The system must use the unofficial Reddit `.json` endpoint.
-*   **Req 1.3**: The system must employ exponential backoff and retry logic when communicating with Reddit to handle `429 Too Many Requests` or transient errors.
+*   **Req 1.3**: The system must employ exponential backoff and retry logic when communicating with external dependencies (Reddit and Gemini AI) to handle rate limits, transient errors, or service interruptions.
 
 ### 2. User Alert Management
 *   **Req 2.1**: Users must be able to define alerts using natural language via a Discord slash command (e.g., `/alert wtb RTX 3080`).

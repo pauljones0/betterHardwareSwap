@@ -46,6 +46,32 @@ func TestMatcher(t *testing.T) {
 			anyOf:    []string{"3080ti"},
 			want:     true,
 		},
+		{
+			name:     "Multiple MustHave - All required",
+			mustHave: []string{"3080ti", "toronto"},
+			want:     true,
+		},
+		{
+			name:     "Multiple MustHave - One missing",
+			mustHave: []string{"3080ti", "vancouver"},
+			want:     false,
+		},
+		{
+			name:     "Special Characters in Corpus",
+			mustHave: []string{"$500"},
+			want:     true,
+		},
+		{
+			name:  "Partial word match in AnyOf",
+			anyOf: []string{"3080"},
+			want:  false, // should not match 3080ti
+		},
+		{
+			name:     "MustNot takes precedence",
+			mustHave: []string{"3080ti"},
+			mustNot:  []string{"bnib"},
+			want:     false,
+		},
 	}
 
 	for _, tt := range tests {

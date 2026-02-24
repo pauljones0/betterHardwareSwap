@@ -16,7 +16,9 @@ This project uses a persona-driven development workflow. Its architecture, requi
 * **Deal Feed & UX:** Posts are stripped of Reddit jargon and summarized cleanly for mobile devices. Pricing, Location, and item names are extracted. Post engagements are shown as reactions.
 * **Historical Tracking:** When a Reddit user changes their flair to `Closed` or `Sold`, the Discord message is updated, turned grey, and struck-through `~~like this~~` to preserve historical pricing for the community. Database auto-trims old posts to stay lightweight.
 * **Serverless Architecture:** 100% event-driven. Discord sends webhooks on commands. Google Cloud Scheduler wakes the bot up every minute to check Reddit.
-+ * **Hardened Security:** Cryptographic interaction verification, non-root containers, and AI prompt guardrails to prevent injection.
+* **Hardened Security:** Cryptographic interaction verification, non-root containers, and AI prompt guardrails to prevent injection.
+* **Reliability & Resilience:** Exponential backoff for Reddit scraping and transient failure retries for Gemini AI calls.
+* **Automated Test Suite:** Comprehensive unit tests and mocks ensuring core matching logic and UI formatting are regression-free.
 
 ## Deployment Guide (GCP & GitHub Actions)
 

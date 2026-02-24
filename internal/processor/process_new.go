@@ -7,7 +7,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/pauljones0/betterHardwareSwap/internal/ai"
-	"github.com/pauljones0/betterHardwareSwap/internal/discord"
 	"github.com/pauljones0/betterHardwareSwap/internal/logger"
 	"github.com/pauljones0/betterHardwareSwap/internal/reddit"
 	"github.com/pauljones0/betterHardwareSwap/internal/store"
@@ -16,7 +15,7 @@ import (
 var globalMatcher = NewMatcher()
 
 // processNewPost handles sending the post to Gemini, matching against alerts, and dispatching.
-func processNewPost(ctx context.Context, db Storer, cache ServerConfigGetter, aiSvc AIService, client *discord.Client, post reddit.Post, alerts []store.AlertRule) {
+func processNewPost(ctx context.Context, db Storer, cache ServerConfigGetter, aiSvc AIService, client DiscordMessenger, post reddit.Post, alerts []store.AlertRule) {
 	logger.Info(ctx, "Processing NEW post",
 		"reddit_id", post.ID,
 		"title", post.Title,
@@ -108,7 +107,7 @@ func buildDealEmbed(post reddit.Post, cleaned *ai.CleanedPost) *discordgo.Messag
 	return embed
 }
 
-func dispatchToServers(ctx context.Context, cache ServerConfigGetter, client *discord.Client, post reddit.Post, embed *discordgo.MessageEmbed, matches map[string][]string) map[string]string {
+func dispatchToServers(ctx context.Context, cache ServerConfigGetter, client DiscordMessenger, post reddit.Post, embed *discordgo.MessageEmbed, matches map[string][]string) map[string]string {
 	serverMsgs := make(map[string]string)
 
 	for serverID, userIDs := range matches {

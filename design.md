@@ -9,9 +9,9 @@ The architecture relies entirely on event-driven execution with no persistent co
 ### Components
 
 1. **Cloud Scheduler (The Pulse)**: Wakes up the bot every minute by making an HTTP GET request to `/cron/scrape`.
-2. **Reddit Scraper (`internal/reddit`)**: Fetch the latest 100 posts from `r/CanadianHardwareSwap`'s unofficial `.json` endpoint. Implements backoff and retry logic.
-3. **Core Processor (`internal/processor`)**: The orchestrator. Coordinates fetching new Reddit posts, checking existing post statuses, calling the AI to parse post content, identifying matching user alerts, and triggering Discord notifications. Implements parallel processing using `errgroup` for high-concurrency throughput.
-4. **AI Parser (`internal/ai`)**: Interfaces with the Google Gemini 2.5 Flash Lite API. Converts human-readable hardware requests into optimized Boolean logic and processes Reddit post titles/descriptions to determine relevance.
+2. **Reddit Scraper (`internal/reddit`)**: Fetch the latest 100 posts from `r/CanadianHardwareSwap`'s unofficial `.json` endpoint. Implements exponential backoff and retry logic for high reliability.
+3. **Core Processor (`internal/processor`)**: The orchestrator. Coordinates fetching new Reddit posts, checking existing post statuses, calling the AI to parse post content, identifying matching user alerts, and triggering Discord notifications. Uses **Interfaces** (`DiscordMessenger`, `Scraper`) to decouple core logic from external dependencies, enabling robust unit testing. Implements parallel processing using `errgroup` for high-concurrency throughput.
+4. **AI Parser (`internal/ai`)**: Interfaces with the Google Gemini 2.5 Flash Lite API. Converts human-readable hardware requests into optimized Boolean logic and processes Reddit post titles/descriptions to determine relevance. Implements transient failure retry logic.
 5. **Discord Client (`internal/discord`)**: Handles incoming Slash Command interactions from users (e.g., `/setup`, `/alert`) via webhook, and sends outbound webhook messages/embeds to Discord channels when a hardware match is found.
 6. **Data Store (`internal/store`)**: Interacts with Google Cloud Firestore in native mode. Tracks user configured alerts, routing configurations (Discord server ID to channel ID mappings), and the lifecycle of processed Reddit posts (to prevent duplicate pings and allow for retrospective flair updates like `Sold` or `Closed`).
 7. **Structured Logger (`internal/logger`)**: Provides JSON-formatted logs with request-id propagation for end-to-end tracing.
@@ -20,8 +20,8 @@ The architecture relies entirely on event-driven execution with no persistent co
 
 ### The Scrape Cycle
 1. Cloud Scheduler hits `GET /cron/scrape`.
-2. The Processor instantiates the Store, Discord, Scraper, and AI clients.
-3. The Scraper pulls `.json` posts from Reddit.
+2. The Processor instantiates the Store, Discord, Scraper, and AI clients using dependency injection via interfaces.
+3. The Scraper pulls `.json` posts from Reddit with automatic exponential backoff on retries.
 4. The Store is queried to retrieve all active user alerts and existing post records.
 5. For each fetched post (processed in parallel):
    - If the post is **old** and its flair changed to `Closed`/`Sold`, the Processor tells Discord to strike-through the original message for historical tracking.

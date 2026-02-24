@@ -1,9 +1,13 @@
 package reddit
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestParseSample(t *testing.T) {
@@ -32,5 +36,35 @@ func TestParseSample(t *testing.T) {
 		if post.Title == "" {
 			t.Errorf("Post %d has no Title", i)
 		}
+	}
+}
+
+func TestFetchWithRetries(t *testing.T) {
+	ctx := context.Background()
+	callCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount < 3 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		// Return valid empty feed on 3rd call
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(Feed{})
+	}))
+	defer server.Close()
+
+	s := NewScraper()
+	s.BaseURL = server.URL
+	s.RetryBackoff = 1 * time.Millisecond // Fast retries for testing
+
+	_, err := s.FetchNewestPosts(ctx)
+	if err != nil {
+		t.Errorf("expected success after retries, got error: %v", err)
+	}
+
+	if callCount != 3 {
+		t.Errorf("expected 3 calls, got %d", callCount)
 	}
 }

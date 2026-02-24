@@ -38,6 +38,19 @@ type AIService interface {
 	Close()
 }
 
+// DiscordMessenger defines the Discord operations needed by the processor.
+type DiscordMessenger interface {
+	SendEmbedWithComponents(channelID string, content string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) (string, error)
+	AddReaction(channelID, messageID, emoji string) error
+	SendMessage(channelID, content string) error
+	EditEmbed(channelID, messageID, content string, embed *discordgo.MessageEmbed) error
+}
+
+// Scraper defines the Reddit scraping operations needed by the processor.
+type Scraper interface {
+	FetchNewestPosts(ctx context.Context) ([]reddit.Post, error)
+}
+
 func HandleCronScrape(w http.ResponseWriter, r *http.Request) {
 	// Generate a simple request ID for the cron run
 	requestID := fmt.Sprintf("cron-%d", time.Now().UnixNano())
@@ -76,7 +89,7 @@ func HandleCronScrape(w http.ResponseWriter, r *http.Request) {
 }
 
 // RunPipeline sweeps Reddit, parses via AI, checks user alerts, and dispatches to Discord.
-func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper *reddit.Scraper, discordClient *discord.Client) error {
+func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper Scraper, discordClient DiscordMessenger) error {
 
 	posts, err := scraper.FetchNewestPosts(ctx)
 	if err != nil {
@@ -134,7 +147,7 @@ func RunPipeline(ctx context.Context, db Storer, aiSvc AIService, scraper *reddi
 	return nil
 }
 
-func handleExistingPostStatus(ctx context.Context, cache ServerConfigGetter, client *discord.Client, post reddit.Post, record *store.PostRecord) error {
+func handleExistingPostStatus(ctx context.Context, cache ServerConfigGetter, client DiscordMessenger, post reddit.Post, record *store.PostRecord) error {
 	// If the post was sold or closed
 	if strings.EqualFold(post.LinkFlairText, "Sold") || strings.EqualFold(post.LinkFlairText, "Closed") {
 		logger.Info(ctx, "Detected SOLD/CLOSED post, updating messages", "reddit_id", post.ID, "count", len(record.ServerMsgs))

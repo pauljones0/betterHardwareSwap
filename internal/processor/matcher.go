@@ -61,11 +61,33 @@ func (m *Matcher) containsWord(corpus, word string) bool {
 	// Cache the regex for performance
 	re, ok := m.patterns[word]
 	if !ok {
-		// Use word boundaries \b to ensure "3080" doesn't match "3080ti"
-		// We escape the word to handle special characters like '+' in 'C++' safely,
-		// though in hardware swap it's mostly alphanumeric.
-		pattern := `\b` + regexp.QuoteMeta(word) + `\b`
-		re = regexp.MustCompile(pattern)
+		// Use a more flexible boundary check than \b to handle special characters (like $)
+		// \b only works if one character is word and the other is non-word.
+		// For $500, \b before $ fails if preceded by a space.
+
+		// We use a custom boundary that considers start/end of string or any whitespace/punctuation.
+		// However, Go's regexp doesn't support lookaround.
+		// A common trick is to use \b if the word starts/ends with a word character,
+		// and something else if it doesn't.
+
+		isWordStart := regexp.MustCompile(`^[a-zA-Z0-9]`).MatchString(word)
+		isWordEnd := regexp.MustCompile(`[a-zA-Z0-9]$`).MatchString(word)
+
+		pattern := regexp.QuoteMeta(word)
+		if isWordStart {
+			pattern = `\b` + pattern
+		} else {
+			// If it starts with a special character, we want it preceded by start of string or whitespace/non-word
+			pattern = `(?:^|[^\w])` + pattern
+		}
+
+		if isWordEnd {
+			pattern = pattern + `\b`
+		} else {
+			pattern = pattern + `(?:$|[^\w])`
+		}
+
+		re = regexp.MustCompile(`(?i)` + pattern)
 		m.patterns[word] = re
 	}
 

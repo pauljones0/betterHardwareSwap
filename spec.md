@@ -29,8 +29,9 @@ Defines where the bot should send alerts for a specific Discord server.
 *   `TrimOldPosts(ctx) error`
 
 ### Package: `ai`
-*   `ParseUserRequest(ctx, userInput) (optimizedQuery string, warning string, error)`
-*   `EvaluatePost(ctx, postTitle, postBody, query) (matching bool, summary string, error)`
+*   `CleanRedditPost(ctx, rawTitle, rawBody) (*CleanedPost, error)`
+*   `RunKeywordWizard(ctx, userRequest, promptOverride) (*KeywordWizardResponse, error)`
+*   `ValidateManualQuery(ctx, userQuery, promptOverride) (*KeywordWizardResponse, error)`
 
 ### Package: `discord`
 *   `HandleInteraction(w http.ResponseWriter, r *http.Request)`
@@ -38,7 +39,7 @@ Defines where the bot should send alerts for a specific Discord server.
 *   `UpdateMessageStatus(channelID, messageID, status) error`
 
 ### Package: `reddit`
-*   `FetchNewestPosts() ([]Post, error)`
+*   `FetchNewestPosts(ctx) ([]Post, error)`
 
 ## External Endpoints
 

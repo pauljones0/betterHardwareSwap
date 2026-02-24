@@ -39,7 +39,9 @@ type Post struct {
 
 // Scraper handles talking to Reddit.
 type Scraper struct {
-	httpClient *http.Client
+	httpClient   *http.Client
+	BaseURL      string
+	RetryBackoff time.Duration
 }
 
 // NewScraper returns an initialized Scraper.
@@ -48,19 +50,21 @@ func NewScraper() *Scraper {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		BaseURL:      "https://www.reddit.com",
+		RetryBackoff: 2 * time.Second,
 	}
 }
 
 // FetchNewestPosts hits the .json endpoint of r/CanadianHardwareSwap.
 func (s *Scraper) FetchNewestPosts(ctx context.Context) ([]Post, error) {
 	maxRetries := 8
-	backoff := 2 * time.Second
+	backoff := s.RetryBackoff
 	var lastErr error
 	var respStatusCode int
 	var body []byte
 
 	for i := 0; i < maxRetries; i++ {
-		req, err := http.NewRequestWithContext(ctx, "GET", "https://www.reddit.com/r/CanadianHardwareSwap/.json?sort=new&limit=100", nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", s.BaseURL+"/r/CanadianHardwareSwap/.json?sort=new&limit=100", nil)
 		if err != nil {
 			return nil, err
 		}
