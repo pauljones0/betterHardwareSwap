@@ -4,6 +4,12 @@ A completely serverless, zero-maintenance Discord bot that monitors `r/CanadianH
 
 Powered by Go, deployed on GCP Cloud Run, scaling to infinite concurrency when called, and scaling to 0 (free) when idle. Storage is backed by Firestore. AI parsing is handled by Gemini 2.5 Flash Lite.
 
+## Living Documentation
+This project uses a persona-driven development workflow. Its architecture, requirements, and specifications are continuously updated in the following living documents:
+* [Design Document](design.md) - Overall system architecture and data flow.
+* [Specification Document](spec.md) - Data models and internal/external APIs.
+* [Requirements Document](requirements.md) - Functional and non-functional requirements.
+
 ## Features
 * **AI Keyword Wizard:** Users tell the bot what they want in plain English, and Gemini builds an optimized Boolean query (Must Include, Can Include, Must Exclude) and warns if the alert is too broad.
 * **Smart Alerting:** 1 post = 1 message. If 8 users match, they are cleanly pinged in a single message.
