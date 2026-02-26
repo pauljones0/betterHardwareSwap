@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/generative-ai-go/genai"
@@ -88,27 +87,11 @@ func (c *AIClient) Close() {
 // CleanRedditPost takes the raw messy Reddit title and body, and returns a concise, mobile-friendly summary.
 func (c *AIClient) CleanRedditPost(ctx context.Context, rawTitle, rawBody string) (*CleanedPost, error) {
 	c.model.SetSystemInstruction(genai.Text(CleanPostSystemInstruction))
-
 	prompt := fmt.Sprintf(CleanPostUserPromptTemplate, rawTitle, rawBody)
 
-	var resp *genai.GenerateContentResponse
-	var lastErr error
-	var err error
-	for i := 0; i < 3; i++ {
-		resp, err = c.model.GenerateContent(ctx, genai.Text(prompt))
-		if err == nil {
-			break
-		}
-		lastErr = err
-		time.Sleep(time.Duration(i+1) * time.Second)
-	}
-
-	if resp == nil {
-		return nil, fmt.Errorf("gemini generation failed after 3 attempts: %w", lastErr)
-	}
-
 	var cleaned CleanedPost
-	if err := parseJSONResponse(resp, &cleaned); err != nil {
+	err := c.callWithRetry(ctx, prompt, &cleaned)
+	if err != nil {
 		return nil, err
 	}
 	return &cleaned, nil
@@ -120,73 +103,71 @@ func (c *AIClient) RunKeywordWizard(ctx context.Context, userRequest, promptOver
 	if basePrompt == "" {
 		basePrompt = DefaultWizardPrompt
 	}
-
 	c.model.SetSystemInstruction(genai.Text(basePrompt))
-
 	prompt := fmt.Sprintf(WizardUserPromptTemplate, userRequest)
 
-	var resp *genai.GenerateContentResponse
-	var lastErr error
-	var err error
-	for i := 0; i < 3; i++ {
-		resp, err = c.model.GenerateContent(ctx, genai.Text(prompt))
-		if err == nil {
-			break
-		}
-		lastErr = err
-		time.Sleep(time.Duration(i+1) * time.Second)
-	}
-
-	if resp == nil {
-		return nil, fmt.Errorf("gemini generation failed after 3 attempts: %w", lastErr)
-	}
-
 	var wizard KeywordWizardResponse
-	if err := parseJSONResponse(resp, &wizard); err != nil {
+	err := c.callWithRetry(ctx, prompt, &wizard)
+	if err != nil {
 		return nil, err
 	}
 	return &wizard, nil
 }
 
-// ValidateManualQuery securely validates a user's manually typed Boolean-like query, translating it into the strict
-// KeywordWizardResponse arrays if valid, or returning an error message if invalid.
+// ValidateManualQuery securely validates a user's manually typed Boolean-like query.
 func (c *AIClient) ValidateManualQuery(ctx context.Context, userQuery, promptOverride string) (*KeywordWizardResponse, error) {
 	basePrompt := promptOverride
 	if basePrompt == "" {
 		basePrompt = DefaultManualPrompt
 	}
-
 	c.model.SetSystemInstruction(genai.Text(basePrompt))
-
 	prompt := fmt.Sprintf(ManualUserPromptTemplate, userQuery)
 
-	var resp *genai.GenerateContentResponse
-	var lastErr error
-	var err error
-	for i := 0; i < 3; i++ {
-		resp, err = c.model.GenerateContent(ctx, genai.Text(prompt))
-		if err == nil {
-			break
-		}
-		lastErr = err
-		time.Sleep(time.Duration(i+1) * time.Second)
-	}
-
-	if resp == nil {
-		return nil, fmt.Errorf("gemini generation failed after 3 attempts: %w", lastErr)
-	}
-
 	var wizard KeywordWizardResponse
-	if err := parseJSONResponse(resp, &wizard); err != nil {
+	err := c.callWithRetry(ctx, prompt, &wizard)
+	if err != nil {
 		return nil, err
 	}
 	return &wizard, nil
 }
 
+// callWithRetry handles the actual AI generation with exponential backoff on transient errors.
+func (c *AIClient) callWithRetry(ctx context.Context, prompt string, v interface{}) error {
+	var lastErr error
+	maxRetries := 3
+
+	for i := 0; i < maxRetries; i++ {
+		resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
+		if err == nil {
+			if parseErr := parseJSONResponse(resp, v); parseErr == nil {
+				return nil
+			} else {
+				// JSON parse error is usually NOT transient, but we retry once just in case of AI flakiness.
+				lastErr = parseErr
+				if i > 0 {
+					break
+				}
+			}
+		} else {
+			lastErr = err
+		}
+
+		backoff := time.Duration(i+1) * time.Second
+		select {
+		case <-time.After(backoff):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return fmt.Errorf("gemini call failed after %d attempts: %w", maxRetries, lastErr)
+}
+
 // parseJSONResponse is a helper that strips any potential markdown formatting (```json) returned by the model and unmarshals it.
 func parseJSONResponse(resp *genai.GenerateContentResponse, v interface{}) error {
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return fmt.Errorf("empty response from model")
+	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
+		return fmt.Errorf("empty or malformed response from model")
 	}
 
 	part := resp.Candidates[0].Content.Parts[0]
@@ -197,8 +178,7 @@ func parseJSONResponse(resp *genai.GenerateContentResponse, v interface{}) error
 
 	str := string(text)
 	if err := json.Unmarshal([]byte(str), v); err != nil {
-		log.Printf("Failed to unmarshal JSON: %s", str)
-		return fmt.Errorf("JSON parse error: %w", err)
+		return fmt.Errorf("JSON parse error: %w (content: %s)", err, str)
 	}
 
 	return nil

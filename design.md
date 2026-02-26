@@ -9,12 +9,17 @@ The architecture relies entirely on event-driven execution with no persistent co
 ### Components
 
 1. **Cloud Scheduler (The Pulse)**: Wakes up the bot every minute by making an HTTP GET request to `/cron/scrape`.
-2. **Reddit Scraper (`internal/reddit`)**: Fetch the latest 100 posts from `r/CanadianHardwareSwap`'s unofficial `.json` endpoint. Implements exponential backoff and retry logic for high reliability.
+2. **Reddit Scraper (`internal/reddit`)**: Fetch the latest 100 posts from `r/CanadianHardwareSwap`'s unofficial `.json` endpoint. Implements exponential backoff (max 3 retries, 10s backoff cap) for high reliability.
+
+   > [!WARNING]
+   > **TEMPORARY:** `FetchNewestPosts` is currently stubbed to return an empty feed without making any HTTP requests. GCP Cloud Run egress IPs are being blocked (HTTP 403) by Reddit/Cloudflare. The stub will be removed once OAuth or proxy routing is implemented.
+
 3. **Core Processor (`internal/processor`)**: The orchestrator. Coordinates fetching new Reddit posts, checking existing post statuses, calling the AI to parse post content, identifying matching user alerts, and triggering Discord notifications. Uses **Interfaces** (`DiscordMessenger`, `Scraper`) to decouple core logic from external dependencies, enabling robust unit testing. Implements parallel processing using `errgroup` for high-concurrency throughput.
 4. **AI Parser (`internal/ai`)**: Interfaces with the Google Gemini 2.5 Flash Lite API. Converts human-readable hardware requests into optimized Boolean logic and processes Reddit post titles/descriptions to determine relevance. Logic is separated into `gemini.go` (client) and `prompts.go` (templates). Implements transient failure retry logic.
 5. **Discord Client (`internal/discord`)**: Handles incoming Slash Command interactions from users (e.g., `/setup`, `/alert`) via webhook, and sends outbound webhook messages/embeds to Discord channels when a hardware match is found. Decomposed into `modals.go` (modal entries), `alerts.go` (alert management), and `components.go` (interaction routing).
 6. **Data Store (`internal/store`)**: Interacts with Google Cloud Firestore in native mode. Tracks user configured alerts, routing configurations (Discord server ID to channel ID mappings), and the lifecycle of processed Reddit posts (to prevent duplicate pings and allow for retrospective flair updates like `Sold` or `Closed`).
 7. **Structured Logger (`internal/logger`)**: Provides JSON-formatted logs with request-id propagation for end-to-end tracing.
+8. **Test Utilities (`internal/testutils`)**: Centralized package for standardized mocks and fixture loading to ensure clean, consistent, and maintainable testing across the entire codebase.
 
 ## Data Flow
 

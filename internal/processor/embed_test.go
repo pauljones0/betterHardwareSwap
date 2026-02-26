@@ -43,9 +43,10 @@ func TestBuildDealEmbed(t *testing.T) {
 		},
 	}
 
+	builder := NewDealBuilder()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildDealEmbed(tt.post, tt.cleaned)
+			got := builder.BuildDealEmbed(tt.post, tt.cleaned)
 			if got.Title != tt.wantTitle {
 				t.Errorf("expected title %q, got %q", tt.wantTitle, got.Title)
 			}

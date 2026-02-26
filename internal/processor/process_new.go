@@ -3,16 +3,17 @@ package processor
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/pauljones0/betterHardwareSwap/internal/ai"
 	"github.com/pauljones0/betterHardwareSwap/internal/logger"
 	"github.com/pauljones0/betterHardwareSwap/internal/reddit"
 	"github.com/pauljones0/betterHardwareSwap/internal/store"
 )
 
-var globalMatcher = NewMatcher()
+var (
+	globalMatcher = NewMatcher()
+	globalBuilder = NewDealBuilder()
+)
 
 // processNewPost handles sending the post to Gemini, matching against alerts, and dispatching.
 func processNewPost(ctx context.Context, db Storer, cache ServerConfigGetter, aiSvc AIService, client DiscordMessenger, post reddit.Post, alerts []store.AlertRule) {
@@ -37,7 +38,7 @@ func processNewPost(ctx context.Context, db Storer, cache ServerConfigGetter, ai
 	matches := findMatches(ctx, alerts, corpus)
 
 	// 4. Create the beautiful Dispatch Embed
-	embed := buildDealEmbed(post, cleaned)
+	embed := globalBuilder.BuildDealEmbed(post, cleaned)
 
 	// 5. Dispatch!
 	serverMsgs := dispatchToServers(ctx, cache, client, post, embed, matches)
@@ -65,48 +66,6 @@ func findMatches(ctx context.Context, alerts []store.AlertRule, corpus string) m
 	return matches
 }
 
-func buildDealEmbed(post reddit.Post, cleaned *ai.CleanedPost) *discordgo.MessageEmbed {
-	embed := &discordgo.MessageEmbed{
-		Title:       "📦 " + cleaned.Title,
-		URL:         post.URL,
-		Description: cleaned.Description,
-		Color:       getColor(post.Score, post.NumComments),
-		Fields:      []*discordgo.MessageEmbedField{},
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("r/CanadianHardwareSwap • 👍 %d | 💬 %d", post.Score, post.NumComments),
-		},
-		Timestamp: time.Unix(int64(post.CreatedUtc), 0).Format(time.RFC3339),
-	}
-
-	if cleaned.Price != "" {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "💰 Price",
-			Value:  cleaned.Price,
-			Inline: true,
-		})
-	}
-	if cleaned.Condition != "" {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "✨ Condition",
-			Value:  cleaned.Condition,
-			Inline: true,
-		})
-	}
-	if cleaned.Location != "" {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "📍 Location",
-			Value:  cleaned.Location,
-			Inline: true,
-		})
-	}
-
-	if post.Thumbnail != "" && post.Thumbnail != "self" && post.Thumbnail != "default" {
-		embed.Thumbnail = &discordgo.MessageEmbedThumbnail{URL: post.Thumbnail}
-	}
-
-	return embed
-}
-
 func dispatchToServers(ctx context.Context, cache ServerConfigGetter, client DiscordMessenger, post reddit.Post, embed *discordgo.MessageEmbed, matches map[string][]string) map[string]string {
 	serverMsgs := make(map[string]string)
 
@@ -118,7 +77,7 @@ func dispatchToServers(ctx context.Context, cache ServerConfigGetter, client Dis
 		}
 
 		// Send to Feed Channel
-		msgID, err := client.SendEmbedWithComponents(cfg.FeedChannelID, "", embed, buildDealButtons(post.URL))
+		msgID, err := client.SendEmbedWithComponents(cfg.FeedChannelID, "", embed, globalBuilder.BuildDealButtons(post.URL))
 		if err == nil {
 			_ = client.AddReaction(cfg.FeedChannelID, msgID, "%F0%9F%91%8D") // Thumbs up
 			_ = client.AddReaction(cfg.FeedChannelID, msgID, "%F0%9F%91%8E") // Thumbs down
@@ -140,46 +99,6 @@ func dispatchToServers(ctx context.Context, cache ServerConfigGetter, client Dis
 		}
 	}
 	return serverMsgs
-}
-
-func buildDealButtons(url string) []discordgo.MessageComponent {
-	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{
-			Components: []discordgo.MessageComponent{
-				discordgo.Button{
-					Emoji: &discordgo.ComponentEmoji{
-						Name: "🌐",
-					},
-					Label: "Open in Reddit",
-					Style: discordgo.LinkButton,
-					URL:   url,
-				},
-				discordgo.Button{
-					Emoji: &discordgo.ComponentEmoji{
-						Name: "🔇",
-					},
-					Label:    "Mute Item",
-					Style:    discordgo.SecondaryButton,
-					CustomID: "mute_item",
-				},
-			},
-		},
-	}
-}
-
-// getColor returns a Discord hex color based on engagement heuristics.
-func getColor(score, comments int) int {
-	interactions := score + comments
-	switch {
-	case interactions >= 16:
-		return 0xFF0000 // Lava Red
-	case interactions >= 6:
-		return 0xFFA500 // Orange
-	case interactions >= 3:
-		return 0xFFFF00 // Yellow
-	default:
-		return 0x808080 // Grey
-	}
 }
 
 func safeContains(corpus, substring string) bool {

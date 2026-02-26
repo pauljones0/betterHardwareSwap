@@ -32,7 +32,6 @@ type Storer interface {
 // AIService defines the AI operations needed by the processor.
 type AIService interface {
 	CleanRedditPost(ctx context.Context, rawTitle, rawBody string) (*ai.CleanedPost, error)
-	Close()
 }
 
 // DiscordMessenger defines the Discord operations needed by the processor.
@@ -120,15 +119,7 @@ func handleExistingPostStatus(ctx context.Context, cache ServerConfigGetter, cli
 			}
 
 			// Construct a greyed out, struck-through version of the original deal
-			embed := &discordgo.MessageEmbed{
-				Title:       "~~" + record.CleanedTitle + "~~",
-				URL:         post.URL,
-				Description: fmt.Sprintf("This deal has been marked as **%s** on Reddit.", post.LinkFlairText),
-				Color:       0x2C2F33, // Discord Darker Grey
-				Footer: &discordgo.MessageEmbedFooter{
-					Text: "Deal Closed",
-				},
-			}
+			embed := globalBuilder.BuildClosedEmbed(record.CleanedTitle, post.URL, post.LinkFlairText)
 
 			err = client.EditEmbed(cfg.FeedChannelID, msgID, "", embed)
 			if err != nil {

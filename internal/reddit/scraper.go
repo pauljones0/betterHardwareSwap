@@ -57,11 +57,29 @@ func NewScraper() *Scraper {
 
 // FetchNewestPosts hits the .json endpoint of r/CanadianHardwareSwap.
 func (s *Scraper) FetchNewestPosts(ctx context.Context) ([]Post, error) {
-	maxRetries := 8
+	// =========================================================================
+	// TEMPORARY: Reddit fetching is disabled.
+	//
+	// The Cloud Run service IPs are being 403-blocked by Reddit/Cloudflare.
+	// Returning an empty feed so the pipeline runs cleanly without erroring.
+	//
+	// TODO: Remove this block once the IP-block issue is resolved.
+	//       Options under investigation:
+	//         - Switch to OAuth (official API) to bypass IP restrictions.
+	//         - Route requests through a non-datacenter proxy.
+	// =========================================================================
+	logger.Warn(ctx, "Reddit fetching is temporarily disabled — returning empty feed")
+	return []Post{}, nil
+
+	// ---- Original implementation below (unreachable until stub is removed) --
+
+	// maxRetries capped at 3 (down from 8) to fail fast and stay within the
+	// Cloud Run timeout. Worst-case total wait: 2s + 4s + 8s = 14s.
+	maxRetries := 3
 	backoff := s.RetryBackoff
+	maxBackoff := 10 * time.Second
 	var lastErr error
 	var respStatusCode int
-	var body []byte
 
 	for i := 0; i < maxRetries; i++ {
 		req, err := http.NewRequestWithContext(ctx, "GET", s.BaseURL+"/r/CanadianHardwareSwap/.json?sort=new&limit=100", nil)
@@ -80,9 +98,14 @@ func (s *Scraper) FetchNewestPosts(ctx context.Context) ([]Post, error) {
 		respStatusCode = resp.StatusCode
 
 		if resp.StatusCode == http.StatusOK {
-			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close() // Close explicitly — defer inside a loop is a leak.
+			if err != nil {
+				return nil, fmt.Errorf("failed to read reddit response body: %w", err)
+			}
+
 			var feed Feed
-			if err := json.NewDecoder(resp.Body).Decode(&feed); err != nil {
+			if err := json.Unmarshal(body, &feed); err != nil {
 				return nil, fmt.Errorf("failed to decode reddit json: %w", err)
 			}
 
@@ -104,16 +127,19 @@ func (s *Scraper) FetchNewestPosts(ctx context.Context) ([]Post, error) {
 			select {
 			case <-time.After(backoff):
 				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
 				continue
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
 
-		body, _ = io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		lastErr = fmt.Errorf("reddit returned %d: %s", respStatusCode, string(body))
-		break // Not a 429, don't retry
+		break // Not a retryable status, stop immediately.
 	}
 
 	if lastErr != nil {

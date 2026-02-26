@@ -1,4 +1,6 @@
-package processor
+//go:build integration
+
+package integration
 
 import (
 	"context"
@@ -6,22 +8,24 @@ import (
 	"testing"
 
 	"github.com/pauljones0/betterHardwareSwap/internal/ai"
+	"github.com/pauljones0/betterHardwareSwap/internal/processor"
 	"github.com/pauljones0/betterHardwareSwap/internal/reddit"
 	"github.com/pauljones0/betterHardwareSwap/internal/store"
+	"github.com/pauljones0/betterHardwareSwap/internal/testutils"
 	"github.com/stretchr/testify/mock"
 )
 
 func TestRunPipeline_Integration_Success(t *testing.T) {
 	ctx := context.Background()
 
-	mockDB := new(MockStore)
-	mockAI := new(MockAI)
-	mockScraper := new(MockScraper)
-	mockDiscord := new(MockDiscord)
+	mockDB := new(testutils.MockStore)
+	mockAI := new(testutils.MockAI)
+	mockScraper := new(testutils.MockScraper)
+	mockDiscord := new(testutils.MockDiscord)
 
 	// 1. Setup Data
 	var post reddit.Post
-	_ = loadFixture("reddit_post.json", &post)
+	_ = testutils.LoadFixture("reddit_post.json", &post)
 	post.ID = "pipe_1"
 	post.Title = "[H] RTX 3080 [W] $500"
 
@@ -59,7 +63,7 @@ func TestRunPipeline_Integration_Success(t *testing.T) {
 	mockDB.On("TrimOldPosts", mock.Anything).Return(nil)
 
 	// 3. Run
-	err := RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
+	err := processor.RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
 
 	// 4. Assertions
 	if err != nil {
@@ -74,14 +78,14 @@ func TestRunPipeline_Integration_Success(t *testing.T) {
 func TestRunPipeline_Integration_RedditFailure(t *testing.T) {
 	ctx := context.Background()
 
-	mockDB := new(MockStore)
-	mockAI := new(MockAI)
-	mockScraper := new(MockScraper)
-	mockDiscord := new(MockDiscord)
+	mockDB := new(testutils.MockStore)
+	mockAI := new(testutils.MockAI)
+	mockScraper := new(testutils.MockScraper)
+	mockDiscord := new(testutils.MockDiscord)
 
 	mockScraper.On("FetchNewestPosts", ctx).Return([]reddit.Post(nil), errors.New("reddit down"))
 
-	err := RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
+	err := processor.RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
 
 	if err == nil {
 		t.Error("expected error when reddit is down, got nil")
@@ -91,16 +95,16 @@ func TestRunPipeline_Integration_RedditFailure(t *testing.T) {
 func TestRunPipeline_Integration_NoPosts(t *testing.T) {
 	ctx := context.Background()
 
-	mockDB := new(MockStore)
-	mockAI := new(MockAI)
-	mockScraper := new(MockScraper)
-	mockDiscord := new(MockDiscord)
+	mockDB := new(testutils.MockStore)
+	mockAI := new(testutils.MockAI)
+	mockScraper := new(testutils.MockScraper)
+	mockDiscord := new(testutils.MockDiscord)
 
 	mockScraper.On("FetchNewestPosts", ctx).Return([]reddit.Post{}, nil)
 	mockDB.On("GetAllAlerts", ctx).Return([]store.AlertRule{}, nil)
 	mockDB.On("TrimOldPosts", mock.Anything).Return(nil)
 
-	err := RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
+	err := processor.RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
 
 	if err != nil {
 		t.Errorf("expected no error for empty posts, got %v", err)
@@ -110,10 +114,10 @@ func TestRunPipeline_Integration_NoPosts(t *testing.T) {
 func TestRunPipeline_PartialFailure(t *testing.T) {
 	ctx := context.Background()
 
-	mockDB := new(MockStore)
-	mockAI := new(MockAI)
-	mockScraper := new(MockScraper)
-	mockDiscord := new(MockDiscord)
+	mockDB := new(testutils.MockStore)
+	mockAI := new(testutils.MockAI)
+	mockScraper := new(testutils.MockScraper)
+	mockDiscord := new(testutils.MockDiscord)
 
 	p1 := reddit.Post{ID: "p1", Title: "Post 1 (Fail)"}
 	p2 := reddit.Post{ID: "p2", Title: "Post 2 (Success)"}
@@ -141,7 +145,7 @@ func TestRunPipeline_PartialFailure(t *testing.T) {
 	// 4. Cleanup
 	mockDB.On("TrimOldPosts", mock.Anything).Return(nil)
 
-	err := RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
+	err := processor.RunPipeline(ctx, mockDB, mockAI, mockScraper, mockDiscord)
 
 	// We expect NO error from RunPipeline even if a sub-task (processNewPost) failed its AI call,
 	// because processNewPost handles its own errors and logs them (void function).

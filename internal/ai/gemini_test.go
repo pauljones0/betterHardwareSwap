@@ -92,6 +92,29 @@ func TestCleanRedditPost(t *testing.T) {
 			t.Errorf("expected 2 calls, got %d", calls)
 		}
 	})
+
+	t.Run("JSON Parse Error", func(t *testing.T) {
+		mock := &MockModel{
+			GenerateContentFn: func(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error) {
+				return &genai.GenerateContentResponse{
+					Candidates: []*genai.Candidate{
+						{
+							Content: &genai.Content{
+								Parts: []genai.Part{genai.Text(`invalid json`)},
+							},
+						},
+					},
+				}, nil
+			},
+		}
+
+		client := &AIClient{model: mock}
+		_, err := client.CleanRedditPost(ctx, "title", "body")
+
+		if err == nil {
+			t.Error("expected error for invalid JSON, got nil")
+		}
+	})
 }
 
 func TestRunKeywordWizard(t *testing.T) {

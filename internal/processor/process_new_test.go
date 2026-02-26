@@ -7,90 +7,79 @@ import (
 	"github.com/pauljones0/betterHardwareSwap/internal/ai"
 	"github.com/pauljones0/betterHardwareSwap/internal/reddit"
 	"github.com/pauljones0/betterHardwareSwap/internal/store"
+	"github.com/pauljones0/betterHardwareSwap/internal/testutils"
 	"github.com/stretchr/testify/mock"
 )
 
-func TestProcessNewPost(t *testing.T) {
+func TestProcessNewPost_TableDriven(t *testing.T) {
 	ctx := context.Background()
 
-	// 1. Setup Mocks
-	mockDB := new(MockStore)
-	mockCache := new(MockCache)
-	mockAI := new(MockAI)
-	mockDiscord := new(MockDiscord)
-
-	var post reddit.Post
-	if err := loadFixture("reddit_post.json", &post); err != nil {
-		t.Fatalf("failed to load fixture: %v", err)
-	}
-	// Override some fields for specific test control, but using the fixture as base
-	post.ID = "t3_abc"
-	post.Title = "[H] RTX 3080 [W] $500"
-
-	cleaned := &ai.CleanedPost{
-		Title:       "RTX 3080",
-		Description: "Clean Desc",
-		Price:       "$500",
-		Location:    "Toronto",
-	}
-
-	alerts := []store.AlertRule{
+	tests := []struct {
+		name         string
+		post         reddit.Post
+		cleaned      *ai.CleanedPost
+		alerts       []store.AlertRule
+		serverConfig *store.ServerConfig
+		expectMatch  bool
+		setupMocks   func(mDB *testutils.MockStore, mAI *testutils.MockAI, mD *testutils.MockDiscord)
+	}{
 		{
-			ServerID: "guild1",
-			UserID:   "user1",
-			MustHave: []string{"3080"},
+			name: "Successful Match",
+			post: reddit.Post{ID: "t3_match", Title: "[H] RTX 3080 [W] $500", SelfText: "Desc"},
+			cleaned: &ai.CleanedPost{
+				Title: "RTX 3080",
+			},
+			alerts: []store.AlertRule{
+				{ServerID: "guild1", UserID: "user1", MustHave: []string{"3080"}},
+			},
+			serverConfig: &store.ServerConfig{FeedChannelID: "feed1", PingChannelID: "ping1"},
+			expectMatch:  true,
+			setupMocks: func(mDB *testutils.MockStore, mAI *testutils.MockAI, mD *testutils.MockDiscord) {
+				mAI.On("CleanRedditPost", mock.Anything, "[H] RTX 3080 [W] $500", "Desc").Return(&ai.CleanedPost{Title: "RTX 3080"}, nil)
+				mDB.On("GetServerConfig", mock.Anything, "guild1").Return(&store.ServerConfig{FeedChannelID: "feed1", PingChannelID: "ping1"}, nil)
+				mD.On("SendEmbedWithComponents", "feed1", "", mock.Anything, mock.Anything).Return("msg123", nil)
+				mD.On("AddReaction", "feed1", "msg123", mock.Anything).Return(nil).Times(2)
+				mD.On("SendMessage", "ping1", mock.Anything).Return(nil)
+				mDB.On("SavePostRecords", mock.Anything, "t3_match", "RTX 3080", map[string]string{"guild1": "msg123"}).Return(nil)
+			},
+		},
+		{
+			name: "No Match",
+			post: reddit.Post{ID: "t3_nomatch", Title: "Something else", SelfText: "Desc"},
+			cleaned: &ai.CleanedPost{
+				Title: "Something else",
+			},
+			alerts: []store.AlertRule{
+				{ServerID: "guild1", UserID: "user1", MustHave: []string{"3080"}},
+			},
+			expectMatch: false,
+			setupMocks: func(mDB *testutils.MockStore, mAI *testutils.MockAI, mD *testutils.MockDiscord) {
+				mAI.On("CleanRedditPost", mock.Anything, "Something else", "Desc").Return(&ai.CleanedPost{Title: "Something else"}, nil)
+				// AssertNotCalled expectations are handled at the end
+			},
 		},
 	}
 
-	serverConfig := &store.ServerConfig{
-		FeedChannelID: "feed1",
-		PingChannelID: "ping1",
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockDB := new(testutils.MockStore)
+			mockAI := new(testutils.MockAI)
+			mockDiscord := new(testutils.MockDiscord)
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockDB, mockAI, mockDiscord)
+			}
+
+			processNewPost(ctx, mockDB, mockDB, mockAI, mockDiscord, tt.post, tt.alerts)
+
+			mockAI.AssertExpectations(t)
+			mockDB.AssertExpectations(t)
+			mockDiscord.AssertExpectations(t)
+
+			if !tt.expectMatch {
+				mockDiscord.AssertNotCalled(t, "SendEmbedWithComponents", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+				mockDB.AssertNotCalled(t, "SavePostRecords", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			}
+		})
 	}
-
-	// Expectation settings
-	mockAI.On("CleanRedditPost", ctx, post.Title, post.SelfText).Return(cleaned, nil)
-	mockCache.On("GetServerConfig", ctx, "guild1").Return(serverConfig, nil)
-	mockDiscord.On("SendEmbedWithComponents", "feed1", "", mock.Anything, mock.Anything).Return("msg123", nil)
-	mockDiscord.On("AddReaction", "feed1", "msg123", mock.Anything).Return(nil).Times(2)
-	mockDiscord.On("SendMessage", "ping1", mock.Anything).Return(nil)
-	mockDB.On("SavePostRecords", ctx, post.ID, cleaned.Title, map[string]string{"guild1": "msg123"}).Return(nil)
-
-	// 2. Run
-	processNewPost(ctx, mockDB, mockCache, mockAI, mockDiscord, post, alerts)
-
-	// 3. Assertions
-	mockAI.AssertExpectations(t)
-	mockCache.AssertExpectations(t)
-	mockDiscord.AssertExpectations(t)
-	mockDB.AssertExpectations(t)
-}
-
-func TestProcessNewPost_NoMatch(t *testing.T) {
-	ctx := context.Background()
-
-	mockDB := new(MockStore)
-	mockCache := new(MockCache)
-	mockAI := new(MockAI)
-	mockDiscord := new(MockDiscord)
-
-	post := reddit.Post{ID: "t3_abc", Title: "Something else"}
-	cleaned := &ai.CleanedPost{Title: "Clean Title"}
-	alerts := []store.AlertRule{
-		{
-			ServerID: "guild1",
-			UserID:   "user1",
-			MustHave: []string{"3080"},
-		},
-	}
-
-	mockAI.On("CleanRedditPost", ctx, post.Title, post.SelfText).Return(cleaned, nil)
-	// We expect NO calls to Discord or Cache or DB.SavePostRecords if no match occurs.
-
-	// 2. Run
-	processNewPost(ctx, mockDB, mockCache, mockAI, mockDiscord, post, alerts)
-
-	// 3. Assertions
-	mockAI.AssertExpectations(t)
-	mockDiscord.AssertNotCalled(t, "SendEmbedWithComponents", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	mockDB.AssertNotCalled(t, "SavePostRecords", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }

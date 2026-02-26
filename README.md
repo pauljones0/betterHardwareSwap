@@ -11,6 +11,10 @@ This project uses a persona-driven development workflow. Its architecture, requi
 * [Requirements Document](requirements.md) - Functional and non-functional requirements.
 
 ## Features
+
+> [!WARNING]
+> **Reddit scraping is temporarily disabled.** The bot is running but will not send deal alerts until the underlying Cloud Run IP-block issue (HTTP 403 from Reddit/Cloudflare) is resolved. All other features (Discord interactions, alert management) remain fully functional.
+
 * **AI Keyword Wizard:** Users tell the bot what they want in plain English, and Gemini builds an optimized Boolean query (Must Include, Can Include, Must Exclude) and warns if the alert is too broad.
 * **Smart Alerting:** 1 post = 1 message. If 8 users match, they are cleanly pinged in a single message.
 * **Deal Feed & UX:** Posts are stripped of Reddit jargon and summarized cleanly for mobile devices. Pricing, Location, and item names are extracted. Post engagements are shown as reactions.
@@ -18,7 +22,7 @@ This project uses a persona-driven development workflow. Its architecture, requi
 * **Serverless Architecture:** 100% event-driven. Discord sends webhooks on commands. Google Cloud Scheduler wakes the bot up every minute to check Reddit.
 * **Hardened Security:** Cryptographic interaction verification, non-root containers, and AI prompt guardrails to prevent injection.
 * **Reliability & Resilience:** Exponential backoff for Reddit scraping and transient failure retries for Gemini AI calls.
-* **Automated Test Suite:** Comprehensive unit tests and mocks ensuring core matching logic and UI formatting are regression-free.
+* **Automated Test Suite:** Comprehensive unit tests (using table-driven patterns), centralized and standardized mocks in `internal/testutils`, and isolated integration tests (using build tags).
 
 ## Deployment Guide (GCP & GitHub Actions)
 

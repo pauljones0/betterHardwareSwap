@@ -120,8 +120,8 @@ func handleInteractionEvent(ctx context.Context, w http.ResponseWriter, i *disco
 	case discordgo.InteractionModalSubmit:
 		routeModalSubmit(ctx, w, i)
 	default:
-		log.Printf("Unknown interaction type: %v", i.Type)
-		http.Error(w, "Unknown Type", http.StatusBadRequest)
+		logger.Warn(ctx, "Unknown interaction type", "type", i.Type)
+		http.Error(w, "Unsupported Interaction Type", http.StatusBadRequest)
 	}
 }
 

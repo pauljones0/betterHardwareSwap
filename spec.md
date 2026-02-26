@@ -24,6 +24,7 @@ Defines where the bot should send alerts for a specific Discord server.
 ### Package: `processor`
 *   `RunPipeline(ctx, db, aiSvc, scraper, discordClient) error`
 *   `HandleCronScrape(w, r)` (located in `handler.go`)
+*   `DealBuilder`: Centralized UI component for constructing Discord embeds and deal buttons.
 
 ### Package: `ai`
 *   `CleanRedditPost(ctx, rawTitle, rawBody) (*CleanedPost, error)`
@@ -33,8 +34,11 @@ Defines where the bot should send alerts for a specific Discord server.
 
 ### Package: `discord`
 *   `HandleInteraction(w http.ResponseWriter, r *http.Request)`
-*   `SendAlert(channelID, embed) (messageID string, error)`
-*   `UpdateMessageStatus(channelID, messageID, status) error`
+*   `Client`: Implements `DiscordMessenger` interface used by the processor.
+    *   `SendEmbedWithComponents(channelID, content, embed, components) (messageID, error)`
+    *   `SendMessage(channelID, content) error`
+    *   `EditEmbed(channelID, messageID, content, embed) error`
+    *   `AddReaction(channelID, messageID, emoji) error`
 *   Logic split across `modals.go` (Wizard/Manual flows), `alerts.go` (Lists/Compaction), and `components.go` (Routing).
 
 ### Package: `reddit`

@@ -7,6 +7,10 @@
 *   **Req 1.2**: The system must use the unofficial Reddit `.json` endpoint.
 *   **Req 1.3**: The system must employ exponential backoff and retry logic when communicating with external dependencies (Reddit and Gemini AI) to handle rate limits, transient errors, or service interruptions.
 
+> [!WARNING]
+> **TEMPORARY — Reddit scraping is currently disabled.** Req 1.1 and 1.3 are suspended while a persistent HTTP 403 (IP-block by Reddit/Cloudflare on GCP Cloud Run egress IPs) is investigated. `FetchNewestPosts` returns an empty feed immediately. See `internal/reddit/scraper.go` for the stub. Remove the stub once a fix is confirmed (OAuth or proxy routing).
+
+
 ### 2. User Alert Management
 *   **Req 2.1**: Users must be able to define alerts using natural language via a Discord slash command (e.g., `/alert wtb RTX 3080`).
 *   **Req 2.2**: The system must process natural language requests using an AI model to generate optimized boolean search queries.
